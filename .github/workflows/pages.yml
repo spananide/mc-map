@@ -31,6 +31,8 @@ jobs:
           restore-keys: site-
       - run: python test_stats.py
       - run: node test_web.mjs
+      - run: python test_sync.py
+      - run: node test_worker.mjs
       - run: python sync.py
         env:
           EXAROTON_TOKEN: ${{ secrets.EXAROTON_TOKEN }}

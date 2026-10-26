@@ -2,7 +2,8 @@
   "name": "mc-tick",
   "main": "index.js",
   "compatibility_date": "2026-10-01",
-  "workers_dev": false,
+  "workers_dev": true,
+  "preview_urls": false,
   "triggers": {
     "crons": [
       "*/10 * * * *"

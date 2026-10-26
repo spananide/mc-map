@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+PLAYERS_URL = "https://mc-tick.spanani.workers.dev/players.json"
 TOKEN = os.environ["EXAROTON_TOKEN"]
 SERVER = os.environ["EXAROTON_SERVER"]
 ROOT = "plugins/squaremap/web"
@@ -49,16 +50,49 @@ def sync(path):
             shutil.rmtree(stale) if os.path.isdir(stale) else os.remove(stale)
 
 
+def patch_map(out, players_url):
+    settings_file = os.path.join(out, "tiles", "settings.json")
+    if os.path.exists(settings_file):
+        with open(settings_file, "r", encoding="utf-8") as f:
+            settings = json.load(f)
+        settings.pop("static", None)
+        with open(settings_file, "w", encoding="utf-8") as f:
+            json.dump(settings, f)
+
+    tiles_dir = os.path.join(out, "tiles")
+    if os.path.isdir(tiles_dir):
+        for entry in os.listdir(tiles_dir):
+            world_dir = os.path.join(tiles_dir, entry)
+            world_settings = os.path.join(world_dir, "settings.json")
+            if os.path.isdir(world_dir) and os.path.isfile(world_settings):
+                with open(world_settings, "r", encoding="utf-8") as f:
+                    ws = json.load(f)
+                ws["tiles_update_interval"] = 100000
+                ws["marker_update_interval"] = 600
+                if "player_tracker" not in ws or not isinstance(ws["player_tracker"], dict):
+                    ws["player_tracker"] = {}
+                ws["player_tracker"]["update_interval"] = 5
+                with open(world_settings, "w", encoding="utf-8") as f:
+                    json.dump(ws, f)
+
+    assets_dir = os.path.join(out, "assets")
+    if os.path.isdir(assets_dir):
+        for root, _, files in os.walk(assets_dir):
+            for entry in files:
+                if entry.endswith(".js") and not entry.endswith(".js.map"):
+                    file_path = os.path.join(root, entry)
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    if "tiles/players.json" in content:
+                        content = content.replace("tiles/players.json", players_url)
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+
+
 if __name__ == "__main__":
     sync(ROOT)
 
-    # The mirror only changes every 10 min; static mode stops the UI re-fetching every tile every 15 s.
-    settings_file = os.path.join(OUT, "tiles", "settings.json")
-    with open(settings_file) as f:
-        settings = json.load(f)
-    settings["static"] = True
-    with open(settings_file, "w") as f:
-        json.dump(settings, f)
+    patch_map(OUT, PLAYERS_URL)
 
     # exaroton's Cloudflare injects its analytics beacon into index.html on download.
     index_file = os.path.join(OUT, "index.html")
