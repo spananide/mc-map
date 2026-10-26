@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import time
 import urllib.error
 import urllib.parse
@@ -36,6 +37,12 @@ def sync(path):
             os.makedirs(os.path.dirname(local), exist_ok=True)
             with open(local, "wb") as f:
                 f.write(get("data", remote))
+    # Drop what the server no longer has (e.g. tiles after a world reset).
+    local_dir = os.path.join("map", os.path.relpath(path, ROOT))
+    if os.path.isdir(local_dir):
+        for name in set(os.listdir(local_dir)) - {c["name"] for c in info["children"] or []}:
+            stale = os.path.join(local_dir, name)
+            shutil.rmtree(stale) if os.path.isdir(stale) else os.remove(stale)
 
 
 sync(ROOT)
