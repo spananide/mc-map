@@ -24,15 +24,24 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/cache@v6
         with:
-          path: map
-          key: map-${{ github.run_id }}
-          restore-keys: map-
+          path: |
+            site/map
+            state
+          key: site-${{ github.run_id }}
+          restore-keys: site-
+      - run: python test_stats.py
+      - run: node test_web.mjs
       - run: python sync.py
         env:
           EXAROTON_TOKEN: ${{ secrets.EXAROTON_TOKEN }}
           EXAROTON_SERVER: ${{ secrets.EXAROTON_SERVER }}
+      - run: python stats.py
+        env:
+          EXAROTON_TOKEN: ${{ secrets.EXAROTON_TOKEN }}
+          EXAROTON_SERVER: ${{ secrets.EXAROTON_SERVER }}
+      - run: cp -r web/. site/ && rm site/spieler.html
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: map
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v5

@@ -180,3 +180,9 @@ Unknown name: "Diesen Spieler gibt es hier nicht." plus a link back to `/stats/`
 3. **GitHub token (user, guided):** fine-grained PAT, only repo `mc-map`, permission "Actions: Read and write".
 4. **Worker (me):** `wrangler deploy` in `worker/`, `wrangler secret put GH_TOKEN`.
 5. **spanani.de Datenschutz (me, push only with the user's OK):** short section for `mc.spanani.de` (GitHub Pages hosting, `mc-heads.net` heads) and the third-party list in section 6.
+
+## Changes found while building
+
+- Paper 26.3 logs broadcasts as `System chat: <message>`; `log_events` strips that prefix (joins, leaves and deaths were all missed without it).
+- Advancement tab roots (`*/root`) are skipped: the game grants them silently and never announces them.
+- Leaderboards list only values > 0 ("Noch niemand." when empty) and carry a one-line subtitle; Kampfmaschine rows show the number only, the unit sits in the subtitle. Player-page values of 0 show "Noch nichts" instead of a rank.

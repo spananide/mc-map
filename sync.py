@@ -10,6 +10,7 @@ import urllib.request
 TOKEN = os.environ["EXAROTON_TOKEN"]
 SERVER = os.environ["EXAROTON_SERVER"]
 ROOT = "plugins/squaremap/web"
+OUT = os.path.join("site", "map")
 
 
 def api(path):
@@ -33,7 +34,7 @@ def sync(path):
     info = json.loads(get("info", path))["data"]
     for child in info["children"] or []:
         remote = f"{path}/{child['name']}"
-        local = os.path.join("map", os.path.relpath(remote, ROOT))
+        local = os.path.join(OUT, os.path.relpath(remote, ROOT))
         if child["isDirectory"]:
             sync(remote)
         elif child["name"].endswith(".json") or not os.path.exists(local) or os.path.getsize(local) != child["size"]:
@@ -41,7 +42,7 @@ def sync(path):
             with open(local, "wb") as f:
                 f.write(get("data", remote))
     # Drop what the server no longer has (e.g. tiles after a world reset).
-    local_dir = os.path.join("map", os.path.relpath(path, ROOT))
+    local_dir = os.path.join(OUT, os.path.relpath(path, ROOT))
     if os.path.isdir(local_dir):
         for name in set(os.listdir(local_dir)) - {c["name"] for c in info["children"] or []}:
             stale = os.path.join(local_dir, name)
@@ -52,14 +53,16 @@ if __name__ == "__main__":
     sync(ROOT)
 
     # The mirror only changes every 10 min; static mode stops the UI re-fetching every tile every 15 s.
-    with open("map/tiles/settings.json") as f:
+    settings_file = os.path.join(OUT, "tiles", "settings.json")
+    with open(settings_file) as f:
         settings = json.load(f)
     settings["static"] = True
-    with open("map/tiles/settings.json", "w") as f:
+    with open(settings_file, "w") as f:
         json.dump(settings, f)
 
     # exaroton's Cloudflare injects its analytics beacon into index.html on download.
-    with open("map/index.html", encoding="utf-8") as f:
+    index_file = os.path.join(OUT, "index.html")
+    with open(index_file, encoding="utf-8") as f:
         html = re.sub(r"<script[^>]*cloudflareinsights.*?</script>\s*", "", f.read(), flags=re.S)
-    with open("map/index.html", "w", encoding="utf-8") as f:
+    with open(index_file, "w", encoding="utf-8") as f:
         f.write(html)
