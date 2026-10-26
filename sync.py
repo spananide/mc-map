@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -38,3 +39,16 @@ def sync(path):
 
 
 sync(ROOT)
+
+# The mirror only changes every 10 min; static mode stops the UI re-fetching every tile every 15 s.
+with open("map/tiles/settings.json") as f:
+    settings = json.load(f)
+settings["static"] = True
+with open("map/tiles/settings.json", "w") as f:
+    json.dump(settings, f)
+
+# exaroton's Cloudflare injects its analytics beacon into index.html on download.
+with open("map/index.html", encoding="utf-8") as f:
+    html = re.sub(r"<script[^>]*cloudflareinsights.*?</script>\s*", "", f.read(), flags=re.S)
+with open("map/index.html", "w", encoding="utf-8") as f:
+    f.write(html)
