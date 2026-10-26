@@ -26,9 +26,9 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background-image: url("bg.svg");
+  background-image: linear-gradient(rgba(0,0,0,.3), rgba(0,0,0,.3)), url("bg.svg");
   background-repeat: repeat;
-  background-size: 64px 64px;
+  background-size: 96px 96px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   padding: 16px;
@@ -105,24 +105,24 @@ a:focus-visible, button:focus-visible {
 
 /* Panels */
 .panel {
-  background-color: #c6c6c6;
+  background-color: rgba(0,0,0,.6);
   border: 2px solid #000000;
-  box-shadow: inset 2px 2px 0 #ffffff, inset -2px -2px 0 #555555;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.14);
   padding: 16px;
-  color: #1e1e1e;
-  text-shadow: none;
+  color: #ffffff;
+  text-shadow: 2px 2px 0 #3f3f3f;
   margin-bottom: 24px;
 }
 
 .panel-title {
-  color: #404040;
+  color: #ffffff;
   font-size: 1.15rem;
   margin-bottom: 12px;
-  text-shadow: none;
+  text-shadow: 2px 2px 0 #3f3f3f;
 }
 
 .panel-subtitle {
-  color: #404040;
+  color: #aaaaaa;
   font-size: 0.85rem;
   margin-top: -8px;
   margin-bottom: 12px;
@@ -130,7 +130,7 @@ a:focus-visible, button:focus-visible {
 }
 
 .panel-empty-msg {
-  color: #404040;
+  color: #aaaaaa;
   font-style: italic;
   padding: 8px 0;
   text-shadow: none;
@@ -145,9 +145,9 @@ a:focus-visible, button:focus-visible {
 
 /* Slots */
 .slot {
-  background-color: #8b8b8b;
-  border: 2px solid #373737;
-  box-shadow: inset 2px 2px 0 #373737, inset -2px -2px 0 #ffffff;
+  background-color: rgba(0,0,0,.55);
+  border: 2px solid rgba(255,255,255,.14);
+  box-shadow: none;
   color: #ffffff;
   text-shadow: 2px 2px 0 #3f3f3f;
   padding: 8px 12px;
@@ -213,7 +213,7 @@ a:focus-visible, button:focus-visible {
 
 .server-players-count {
   font-size: 0.95rem;
-  color: #7f7f7f;
+  color: #aaaaaa;
   text-shadow: none;
 }
 
@@ -364,7 +364,7 @@ a:focus-visible, button:focus-visible {
 
 .counter-label {
   font-size: 0.95rem;
-  color: #404040;
+  color: #aaaaaa;
   margin-bottom: 8px;
 }
 
@@ -384,7 +384,8 @@ a:focus-visible, button:focus-visible {
 .fact-text {
   font-size: 1.1rem;
   line-height: 1.4;
-  color: #1e1e1e;
+  color: #ffffff;
+  text-shadow: 2px 2px 0 #3f3f3f;
   padding: 8px 0;
 }
 
@@ -410,8 +411,9 @@ a:focus-visible, button:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  background-color: #8b8b8b;
-  border: 1px solid #373737;
+  background-color: rgba(255,255,255,.07);
+  border: 2px solid rgba(255,255,255,.12);
+  box-shadow: none;
   padding: 4px 8px;
 }
 
@@ -489,7 +491,8 @@ a:focus-visible, button:focus-visible {
 
 .player-title {
   font-size: 1.8rem;
-  color: #404040;
+  color: #ffffff;
+  text-shadow: 2px 2px 0 #3f3f3f;
   margin-bottom: 8px;
 }
 
@@ -515,7 +518,7 @@ a:focus-visible, button:focus-visible {
 
 .player-meta {
   font-size: 0.95rem;
-  color: #303030;
+  color: #dddddd;
   margin-bottom: 4px;
 }
 
@@ -537,7 +540,7 @@ a:focus-visible, button:focus-visible {
 
 .stat-label {
   font-size: 0.85rem;
-  color: #dddddd;
+  color: #aaaaaa;
 }
 
 .stat-val {
