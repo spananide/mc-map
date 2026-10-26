@@ -83,10 +83,12 @@ The exaroton API returns 429 after a burst of ~20 requests; reuse the retry-on-4
 Ranks are computed in the browser (sort `players` by the key), so the JSON stays rank-free.
 
 `site/data/events.json`: newest first, max 300, each
-`{"t": "ISO", "type": "advancement"|"death", "player": "spananii", "text": "German text without the name", "key": "dedupe key"}`.
-Example texts: `hat den Fortschritt [Monsterjäger] erzielt` (bracket part rendered as a label), `wurde von Zombie erschlagen`.
+`{"t": "ISO", "type": "advancement"|"death", "player": "spananii", "text": "German text, {p} marks the player name", "key": "dedupe key"}`.
+Example texts: `{p} hat den Fortschritt [Monsterjäger] erzielt` (bracket parts render as a label), `{p} wurde von Zombie erschlagen`, `%2$s zeigte {p}, …` style word order is kept as German has it.
 
-`state/events.json` and `state/meta.json` (`{uuid: {firstSeen, lastSeen}}`) persist across runs through the Actions cache. `site/data/events.json` is a copy.
+`state/` persists across runs through the Actions cache and holds the last good `status.json`, `stats.json`, `events.json`, plus `meta.json` (`{uuid: {firstSeen, lastSeen}}`) and `log.json` (`{fingerprint, lines}`: which log lines were already processed). `site/data/` is a copy of the three public files.
+
+All links, asset and data URLs are relative (`data-root` on `<body>`: `""`, `"../"`, `"../../"`), so the site works both at `spananide.github.io/mc-map/` and at `mc.spanani.de/`.
 
 ### Stat definitions (vanilla stats JSON, namespace `minecraft:`)
 
@@ -116,6 +118,7 @@ Favorites: top 10 of `mined.*`, `used.*` limited to blocks, `killed.*`, `killed_
 - **Advancements:** every entry in the advancements file with `done: true` whose `advancements.<path>.title` exists in `lang/de.json` (this drops `recipes/*` and hidden roots). Path `minecraft:adventure/kill_a_mob` -> key `advancements.adventure.kill_a_mob.title`. Timestamp = latest criterion time (format `2026-10-26 15:55:11 +0100`).
 - **Deaths:** every log line `[HH:MM:SS] [Server thread/INFO]: <message>` whose message matches a `death.*` pattern from `lang/en.json` (`%1$s` = known player name, `%2$s` = killer, `%3$s` = item, regex built per key, longest pattern first). Rendered with the same key from `lang/de.json`; a killer that is an English entity name is mapped back to its `entity.minecraft.*` key and shown in German, player names stay as they are.
 - **Log dates:** log lines carry only `HH:MM:SS` (server time, Europe/Berlin). Walk lines from the newest backwards starting at the fetch time; whenever the time jumps forward while going backwards, step one day back.
+- **Each log line once:** the same log is served until the next server start, also while the server is offline. `state/log.json` stores a fingerprint (first 3 lines joined) and how many lines were processed; a matching fingerprint means only lines after that count are new. A different fingerprint means a new session: all its lines are new.
 - **Dedupe:** key = type + player + text + timestamp to the second. Merge into `state/events.json`, sort newest first, keep 300.
 - **First/last seen:** `firstSeen` = earliest of (first join line seen, first run that saw the stats file); `lastSeen` = latest of (leave line, run where the player was online).
 
