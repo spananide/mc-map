@@ -1,0 +1,38 @@
+name: map
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: map
+          key: map-${{ github.run_id }}
+          restore-keys: map-
+      - run: python sync.py
+        env:
+          EXAROTON_TOKEN: ${{ secrets.EXAROTON_TOKEN }}
+          EXAROTON_SERVER: ${{ secrets.EXAROTON_SERVER }}
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: map
+      - id: deployment
+        uses: actions/deploy-pages@v5
