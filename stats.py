@@ -36,6 +36,11 @@ FOODS: list[str] = [
 CAT_ORDER: list[str] = ["story", "nether", "end", "adventure", "husbandry"]
 CAT_PRIORITY: dict[str, int] = {cat: i for i, cat in enumerate(CAT_ORDER)}
 
+# Accounts merged into another one: (src_uuid, dst_uuid, src_name, dst_name)
+MERGES: list[tuple[str, str, str, str]] = [
+    ("00000000-0000-0000-0009-01f751eac29e", "a1882a86-ef9f-4b76-9f39-8f0c062c206f", ".M48HD", "SirObsidian"),
+]
+
 LINE_RE = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\] \[([^\]]+)\]: (.*)$")
 
 
@@ -623,6 +628,57 @@ def merge_events(old: list[dict], new: list[dict], limit: int = 300) -> list[dic
     return sorted_events[:limit]
 
 
+def rename_events(events: list[dict], src_name: str, dst_name: str) -> list[dict]:
+    result = []
+    seen = set()
+    src_tag = f"|{src_name}|"
+    dst_tag = f"|{dst_name}|"
+    for ev in events:
+        if ev.get("player") == src_name:
+            item = dict(ev)
+            item["player"] = dst_name
+            if "key" in item:
+                item["key"] = item["key"].replace(src_tag, dst_tag, 1)
+        else:
+            item = ev
+        k = item.get("key")
+        if k not in seen:
+            seen.add(k)
+            result.append(item)
+    return result
+
+
+def merge_state(meta: dict, hist: dict, act: dict, src_uuid: str, dst_uuid: str) -> None:
+    if src_uuid == dst_uuid:
+        return
+
+    if src_uuid in meta:
+        src_meta = meta.pop(src_uuid)
+        if dst_uuid not in meta:
+            meta[dst_uuid] = dict(src_meta)
+        else:
+            dst_meta = meta[dst_uuid]
+            first_seens = [v for v in (src_meta.get("firstSeen"), dst_meta.get("firstSeen")) if v]
+            last_seens = [v for v in (src_meta.get("lastSeen"), dst_meta.get("lastSeen")) if v]
+            if first_seens:
+                dst_meta["firstSeen"] = min(first_seens)
+            if last_seens:
+                dst_meta["lastSeen"] = max(last_seens)
+
+    for day in hist.values():
+        if isinstance(day, dict) and src_uuid in day:
+            day[dst_uuid] = round(day.get(dst_uuid, 0.0) + day.pop(src_uuid), 2)
+
+    if src_uuid in act:
+        src_act = act.pop(src_uuid)
+        if isinstance(src_act, dict):
+            if dst_uuid not in act or not isinstance(act[dst_uuid], dict):
+                act[dst_uuid] = {}
+            dst_act = act[dst_uuid]
+            for hour, samples in src_act.items():
+                dst_act[hour] = dst_act.get(hour, 0) + samples
+
+
 def update_meta(meta: dict, uuid: str, times: list[datetime]) -> None:
     time_strs = [t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") for t in times]
     if uuid in meta:
@@ -848,6 +904,8 @@ def main():
         yesterday_berlin = (now.astimezone(TZ).date() - timedelta(days=1)).strftime("%Y-%m-%d")
         record_history(history_state, yesterday_berlin, players_out)
     record_history(history_state, today_berlin, players_out)
+    for src_uuid, dst_uuid, _, _ in MERGES:
+        merge_state(meta_state, history_state, activity_state, src_uuid, dst_uuid)
     today_date = now.astimezone(TZ).date()
     days14 = [(today_date - timedelta(days=13 - i)).strftime("%Y-%m-%d") for i in range(14)]
     history_players = [
@@ -878,6 +936,8 @@ def main():
 
     # 8. Events
     events_data = merge_events(events_state, advancement_events_list + death_events_list, limit=300)
+    for _, _, src_name, dst_name in MERGES:
+        events_data = rename_events(events_data, src_name, dst_name)
 
     # 9. Write all state files, copy to site/data/
     os.makedirs("state", exist_ok=True)

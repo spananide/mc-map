@@ -1,9 +1,11 @@
+import copy
 import gzip
 import struct
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from stats import (
     FOODS,
+    MERGES,
     TZ,
     add_layer,
     advancement_done,
@@ -20,12 +22,14 @@ from stats import (
     last_death,
     log_events,
     merge_events,
+    merge_state,
     new_log_lines,
     path_name,
     prune_activity,
     read_nbt,
     record_activity,
     record_history,
+    rename_events,
     update_meta,
 )
 
@@ -488,6 +492,111 @@ def test_grave_layer_and_add_layer():
     assert cleaned[0] == {"id": "squaremap_spawn", "name": "Spawn"}
 
 
+def test_merge_accounts():
+    src_uuid, dst_uuid, src_name, dst_name = MERGES[0]
+
+    # rename_events: events [{src death A}, {dst adv B}, {src adv B with the same text and t as dst's}]
+    ev_src_death = {
+        "t": "2024-01-01T10:00:00Z",
+        "type": "death",
+        "player": src_name,
+        "text": f"{src_name} fell from a high place",
+        "key": f"death|{src_name}|{src_name} fell from a high place|2024-01-01T10:00:00Z",
+    }
+    ev_dst_adv = {
+        "t": "2024-01-02T12:00:00Z",
+        "type": "advancement",
+        "player": dst_name,
+        "text": "{p} made progress",
+        "key": f"advancement|{dst_name}|{{p}} made progress|2024-01-02T12:00:00Z",
+    }
+    ev_src_adv = {
+        "t": "2024-01-02T12:00:00Z",
+        "type": "advancement",
+        "player": src_name,
+        "text": "{p} made progress",
+        "key": f"advancement|{src_name}|{{p}} made progress|2024-01-02T12:00:00Z",
+    }
+    events_in = [ev_src_death, ev_dst_adv, ev_src_adv]
+    c_death = copy.deepcopy(ev_src_death)
+    c_dst_adv = copy.deepcopy(ev_dst_adv)
+    c_src_adv = copy.deepcopy(ev_src_adv)
+
+    out_events = rename_events(events_in, src_name, dst_name)
+
+    # src death renamed (player and key)
+    assert out_events[0]["player"] == dst_name
+    assert out_events[0]["key"] == f"death|{dst_name}|{src_name} fell from a high place|2024-01-01T10:00:00Z"
+    assert out_events[0]["text"] == ev_src_death["text"]
+    assert out_events[0]["t"] == ev_src_death["t"]
+
+    # the duplicate collapses to one, order kept
+    assert len(out_events) == 2
+    assert out_events[1]["player"] == dst_name
+    assert out_events[1]["key"] == ev_dst_adv["key"]
+    assert out_events[1]["text"] == ev_dst_adv["text"]
+    assert out_events[1]["t"] == ev_dst_adv["t"]
+
+    # input dicts unchanged
+    assert ev_src_death == c_death
+    assert ev_dst_adv == c_dst_adv
+    assert ev_src_adv == c_src_adv
+
+    # merge_state:
+    # meta src firstSeen earlier than dst's and lastSeen earlier -> dst firstSeen = src's, lastSeen = dst's, src gone
+    meta = {
+        src_uuid: {"firstSeen": "2024-01-01T00:00:00Z", "lastSeen": "2024-01-05T00:00:00Z"},
+        dst_uuid: {"firstSeen": "2024-01-03T00:00:00Z", "lastSeen": "2024-01-10T00:00:00Z"},
+    }
+    # hist two days, src in both -> summed and rounded, src gone
+    hist = {
+        "2024-01-10": {src_uuid: 1.234, dst_uuid: 2.1},
+        "2024-01-11": {src_uuid: 3.5, dst_uuid: 1.1},
+    }
+    # act overlapping hour summed, new hour added, src gone
+    act = {
+        src_uuid: {"2024-01-10T12": 2, "2024-01-10T13": 5},
+        dst_uuid: {"2024-01-10T12": 3, "2024-01-10T14": 1},
+    }
+
+    merge_state(meta, hist, act, src_uuid, dst_uuid)
+
+    assert src_uuid not in meta
+    assert meta[dst_uuid]["firstSeen"] == "2024-01-01T00:00:00Z"
+    assert meta[dst_uuid]["lastSeen"] == "2024-01-10T00:00:00Z"
+
+    assert src_uuid not in hist["2024-01-10"]
+    assert src_uuid not in hist["2024-01-11"]
+    assert hist["2024-01-10"][dst_uuid] == 3.33
+    assert hist["2024-01-11"][dst_uuid] == 4.6
+
+    assert src_uuid not in act
+    assert act[dst_uuid]["2024-01-10T12"] == 5
+    assert act[dst_uuid]["2024-01-10T13"] == 5
+    assert act[dst_uuid]["2024-01-10T14"] == 1
+
+    # second call leaves all three dicts equal to a deep copy taken after the first call
+    meta_snap = copy.deepcopy(meta)
+    hist_snap = copy.deepcopy(hist)
+    act_snap = copy.deepcopy(act)
+
+    merge_state(meta, hist, act, src_uuid, dst_uuid)
+    assert meta == meta_snap
+    assert hist == hist_snap
+    assert act == act_snap
+
+    # meta with only src -> dst gets src's values
+    meta_src_only = {
+        src_uuid: {"firstSeen": "2024-02-01T00:00:00Z", "lastSeen": "2024-02-05T00:00:00Z"}
+    }
+    merge_state(meta_src_only, {}, {}, src_uuid, dst_uuid)
+    assert src_uuid not in meta_src_only
+    assert meta_src_only[dst_uuid] == {
+        "firstSeen": "2024-02-01T00:00:00Z",
+        "lastSeen": "2024-02-05T00:00:00Z",
+    }
+
+
 if __name__ == "__main__":
     test_path_name()
     test_derive()
@@ -505,4 +614,5 @@ if __name__ == "__main__":
     test_record_activity_and_prune()
     test_read_nbt_and_last_death()
     test_grave_layer_and_add_layer()
+    test_merge_accounts()
     print("OK")
