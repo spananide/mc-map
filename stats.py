@@ -303,18 +303,26 @@ def daily_hours(hist: dict, days: list[str], uuid: str) -> list[float]:
     if not days:
         return []
 
+    first_day = min(hist, default="")
     earlier_days = [d for d in hist if d < days[0] and uuid in hist[d]]
     if earlier_days:
-        last_val = hist[max(earlier_days)][uuid]
+        baseline = hist[max(earlier_days)][uuid]
     else:
-        last_val = 0.0
+        baseline = None
 
     result = []
     for day in days:
         if day in hist and uuid in hist[day]:
             val = hist[day][uuid]
-            gained = max(0.0, val - last_val)
-            last_val = val
+            if baseline is None and day == first_day:
+                baseline = val
+                gained = 0.0
+            elif baseline is None and day != first_day:
+                gained = max(0.0, val - 0.0)
+                baseline = val
+            else:
+                gained = max(0.0, val - baseline)
+                baseline = val
             result.append(round(gained, 2))
         else:
             result.append(0.0)
@@ -836,6 +844,9 @@ def main():
     players_out.sort(key=lambda p: p["main"]["playtime_h"], reverse=True)
 
     today_berlin = now.astimezone(TZ).strftime("%Y-%m-%d")
+    if not history_state:
+        yesterday_berlin = (now.astimezone(TZ).date() - timedelta(days=1)).strftime("%Y-%m-%d")
+        record_history(history_state, yesterday_berlin, players_out)
     record_history(history_state, today_berlin, players_out)
     today_date = now.astimezone(TZ).date()
     days14 = [(today_date - timedelta(days=13 - i)).strftime("%Y-%m-%d") for i in range(14)]

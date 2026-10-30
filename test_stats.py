@@ -355,12 +355,19 @@ def test_record_history_and_daily_hours():
     record_history(hist, day1, players1)
     assert hist[day1]["u1"] == 1.0
 
-    players3 = [{"uuid": "u1", "main": {"playtime_h": 3.5}}]
+    players3 = [
+        {"uuid": "u1", "main": {"playtime_h": 3.5}},
+        {"uuid": "u2", "main": {"playtime_h": 2.0}},
+    ]
     record_history(hist, day3, players3)
     assert hist[day3]["u1"] == 3.5
+    assert hist[day3]["u2"] == 2.0
 
     daily = daily_hours(hist, [day1, day2, day3], "u1")
-    assert daily == [1.0, 0, 2.5]
+    assert daily == [0.0, 0.0, 2.5]
+
+    daily_u2 = daily_hours(hist, [day1, day2, day3], "u2")
+    assert daily_u2 == [0.0, 0.0, 2.0]
 
     # a day older than 60 days is dropped
     old_day = "2026-05-01"
