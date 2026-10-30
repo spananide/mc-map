@@ -1,6 +1,9 @@
+import gzip
+import html
 import json
 import os
 import re
+import struct
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, reset_tzpath
 
@@ -29,6 +32,9 @@ FOODS: list[str] = [
     "chorus_fruit", "cookie", "pumpkin_pie", "dried_kelp", "honey_bottle",
     "rotten_flesh", "spider_eye"
 ]
+
+CAT_ORDER: list[str] = ["story", "nether", "end", "adventure", "husbandry"]
+CAT_PRIORITY: dict[str, int] = {cat: i for i, cat in enumerate(CAT_ORDER)}
 
 LINE_RE = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\] \[([^\]]+)\]: (.*)$")
 
@@ -171,6 +177,306 @@ def advancement_events(adv: dict, player: str, de: dict) -> list[dict]:
                 events.append(event(latest_t, "advancement", player, text))
     events.sort(key=lambda e: e["t"], reverse=True)
     return events
+
+
+def advancement_list(de: dict) -> list[dict]:
+    items = []
+    for k, title in de.items():
+        if not (k.startswith("advancements.") and k.endswith(".title")):
+            continue
+        inner = k[len("advancements.") : -len(".title")]
+        parts = inner.split(".", 1)
+        if len(parts) == 2:
+            cat, name = parts
+            if name == "root":
+                continue
+            desc = de.get(f"advancements.{cat}.{name}.description", "")
+            items.append({
+                "key": f"{cat}/{name}",
+                "title": title,
+                "description": desc,
+            })
+
+    def sort_key(item: dict):
+        cat = item["key"].split("/", 1)[0]
+        if cat in CAT_PRIORITY:
+            return (0, CAT_PRIORITY[cat], item["key"])
+        return (1, cat, item["key"])
+
+    items.sort(key=sort_key)
+    return items
+
+
+def advancement_done(adv: dict) -> list[list]:
+    done_items = []
+    for k, v in adv.items():
+        if not isinstance(v, dict) or not v.get("done"):
+            continue
+        key = k.removeprefix("minecraft:")
+        if key.startswith("recipes/") or key.startswith("recipe/"):
+            continue
+        if key.endswith("/root") or key == "root":
+            continue
+
+        criteria = v.get("criteria", {})
+        if not isinstance(criteria, dict):
+            continue
+
+        times = []
+        for c_val in criteria.values():
+            if not isinstance(c_val, str):
+                continue
+            try:
+                times.append(datetime.strptime(c_val, "%Y-%m-%d %H:%M:%S %z"))
+                continue
+            except (ValueError, TypeError):
+                pass
+            try:
+                times.append(datetime.fromisoformat(c_val))
+                continue
+            except (ValueError, TypeError):
+                pass
+
+        if times:
+            latest_t = max(times)
+            t_iso = latest_t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            done_items.append([key, t_iso])
+
+    done_items.sort(key=lambda x: (x[1], x[0]))
+    return done_items
+
+
+def firsts(players: list[dict], titles: dict[str, str]) -> list[dict]:
+    best = {}  # key -> (t, player_name)
+    for p in players:
+        p_name = p.get("name", "")
+        adv_info = p.get("adv", {})
+        done_list = adv_info.get("done", []) if isinstance(adv_info, dict) else []
+        for item in done_list:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                continue
+            key, t = item[0], item[1]
+            if key not in best:
+                best[key] = (t, p_name)
+            else:
+                cur_t, cur_p = best[key]
+                if t < cur_t or (t == cur_t and p_name < cur_p):
+                    best[key] = (t, p_name)
+
+    res = []
+    for key, (t, p_name) in best.items():
+        res.append({
+            "key": key,
+            "title": titles.get(key, key),
+            "player": p_name,
+            "t": t,
+        })
+    res.sort(key=lambda x: x["key"])
+    res.sort(key=lambda x: x["t"], reverse=True)
+    return res
+
+
+def record_history(hist: dict, day: str, players: list[dict]) -> dict:
+    if day not in hist:
+        hist[day] = {}
+    for p in players:
+        uuid = p.get("uuid")
+        if uuid:
+            hist[day][uuid] = p.get("main", {}).get("playtime_h", 0.0)
+
+    try:
+        day_dt = datetime.strptime(day, "%Y-%m-%d").date()
+        cutoff = day_dt - timedelta(days=60)
+        for d_str in list(hist.keys()):
+            try:
+                d_dt = datetime.strptime(d_str, "%Y-%m-%d").date()
+                if d_dt < cutoff:
+                    del hist[d_str]
+            except ValueError:
+                pass
+    except ValueError:
+        pass
+    return hist
+
+
+def daily_hours(hist: dict, days: list[str], uuid: str) -> list[float]:
+    if not days:
+        return []
+
+    earlier_days = [d for d in hist if d < days[0] and uuid in hist[d]]
+    if earlier_days:
+        last_val = hist[max(earlier_days)][uuid]
+    else:
+        last_val = 0.0
+
+    result = []
+    for day in days:
+        if day in hist and uuid in hist[day]:
+            val = hist[day][uuid]
+            gained = max(0.0, val - last_val)
+            last_val = val
+            result.append(round(gained, 2))
+        else:
+            result.append(0.0)
+    return result
+
+
+def record_activity(act: dict, uuid: str, now: datetime) -> dict:
+    hour_key = now.astimezone(TZ).strftime("%Y-%m-%dT%H")
+    if uuid not in act:
+        act[uuid] = {}
+    act[uuid][hour_key] = act[uuid].get(hour_key, 0) + 1
+    return act
+
+
+def prune_activity(act: dict, now: datetime) -> dict:
+    now_tz = now.astimezone(TZ)
+    cutoff = now_tz - timedelta(days=7)
+    for uuid, hours in list(act.items()):
+        if not isinstance(hours, dict):
+            continue
+        for k in list(hours.keys()):
+            try:
+                k_dt = datetime.strptime(k, "%Y-%m-%dT%H").replace(tzinfo=TZ)
+                if k_dt < cutoff:
+                    del hours[k]
+            except ValueError:
+                pass
+    return act
+
+
+def read_nbt(data: bytes) -> dict:
+    if data.startswith(b"\x1f\x8b"):
+        data = gzip.decompress(data)
+
+    pos = 0
+
+    def read_bytes(n: int) -> bytes:
+        nonlocal pos
+        res = data[pos : pos + n]
+        if len(res) < n:
+            raise ValueError("Unexpected EOF in NBT")
+        pos += n
+        return res
+
+    def read_string() -> str:
+        length = struct.unpack(">H", read_bytes(2))[0]
+        raw = read_bytes(length)
+        return raw.decode("utf-8", errors="replace")
+
+    def read_payload(tag_type: int):
+        if tag_type == 1:
+            return struct.unpack(">b", read_bytes(1))[0]
+        elif tag_type == 2:
+            return struct.unpack(">h", read_bytes(2))[0]
+        elif tag_type == 3:
+            return struct.unpack(">i", read_bytes(4))[0]
+        elif tag_type == 4:
+            return struct.unpack(">q", read_bytes(8))[0]
+        elif tag_type == 5:
+            return struct.unpack(">f", read_bytes(4))[0]
+        elif tag_type == 6:
+            return struct.unpack(">d", read_bytes(8))[0]
+        elif tag_type == 7:
+            count = struct.unpack(">i", read_bytes(4))[0]
+            if count <= 0:
+                return []
+            return list(struct.unpack(f">{count}b", read_bytes(count)))
+        elif tag_type == 8:
+            return read_string()
+        elif tag_type == 9:
+            elem_type = struct.unpack(">b", read_bytes(1))[0]
+            count = struct.unpack(">i", read_bytes(4))[0]
+            if count <= 0:
+                return []
+            return [read_payload(elem_type) for _ in range(count)]
+        elif tag_type == 10:
+            res = {}
+            while True:
+                item_tag = struct.unpack(">b", read_bytes(1))[0]
+                if item_tag == 0:
+                    break
+                name = read_string()
+                val = read_payload(item_tag)
+                res[name] = val
+            return res
+        elif tag_type == 11:
+            count = struct.unpack(">i", read_bytes(4))[0]
+            if count <= 0:
+                return []
+            return list(struct.unpack(f">{count}i", read_bytes(count * 4)))
+        elif tag_type == 12:
+            count = struct.unpack(">i", read_bytes(4))[0]
+            if count <= 0:
+                return []
+            return list(struct.unpack(f">{count}q", read_bytes(count * 8)))
+        else:
+            raise ValueError(f"Unknown NBT tag type {tag_type}")
+
+    if not data:
+        return {}
+    root_type = struct.unpack(">b", read_bytes(1))[0]
+    if root_type == 0:
+        return {}
+    if root_type != 10:
+        raise ValueError(f"Expected root compound (10), got {root_type}")
+    _root_name = read_string()
+    return read_payload(10)
+
+
+def last_death(nbt: dict | None) -> dict | None:
+    if not isinstance(nbt, dict):
+        return None
+    loc = nbt.get("LastDeathLocation")
+    if not isinstance(loc, dict):
+        return None
+    dim = loc.get("dimension")
+    pos = loc.get("pos")
+    if not isinstance(dim, str) or not isinstance(pos, (list, tuple)) or len(pos) < 3:
+        return None
+    world = dim.replace(":", "_")
+    return {
+        "world": world,
+        "x": int(pos[0]),
+        "y": int(pos[1]),
+        "z": int(pos[2]),
+    }
+
+
+def grave_layer(players: list[dict], world: str, now_ms: int) -> dict | None:
+    markers = []
+    for p in players:
+        ld = p.get("lastDeath")
+        if isinstance(ld, dict) and ld.get("world") == world:
+            name = p.get("name", "")
+            markers.append({
+                "type": "icon",
+                "point": {"x": ld["x"], "z": ld["z"]},
+                "size": {"x": 16, "z": 16},
+                "anchor": {"x": 8, "z": 8},
+                "tooltip_anchor": {"x": 0, "z": -8},
+                "icon": "grave",
+                "tooltip": "Letzter Tod von " + html.escape(name),
+            })
+    if not markers:
+        return None
+    return {
+        "id": "mc-site-graves",
+        "name": "Gräber",
+        "order": 50,
+        "z_index": 50,
+        "control": True,
+        "hide": False,
+        "timestamp": now_ms,
+        "markers": markers,
+    }
+
+
+def add_layer(markers_list: list[dict], layer: dict | None) -> list[dict]:
+    res = [l for l in markers_list if isinstance(l, dict) and l.get("id") != "mc-site-graves"]
+    if layer is not None:
+        res.append(layer)
+    return res
 
 
 def death_patterns(en: dict) -> list[tuple[str, re.Pattern]]:
@@ -343,6 +649,10 @@ def main():
             en = json.load(f)
     patterns = death_patterns(en)
 
+    adv_list = advancement_list(de)
+    titles_dict = {item["key"]: item["title"] for item in adv_list}
+    adv_keys = {item["key"] for item in adv_list}
+
     def load_json(path, default):
         if os.path.exists(path):
             try:
@@ -353,10 +663,12 @@ def main():
         return default
 
     status_state = load_json("state/status.json", {"updated": "", "online": False, "max": 0, "motd": "", "players": []})
-    stats_state = load_json("state/stats.json", {"updated": "", "players": []})
+    stats_state = load_json("state/stats.json", {"updated": "", "players": [], "firsts": []})
     events_state = load_json("state/events.json", [])
     meta_state = load_json("state/meta.json", {})
     log_state = load_json("state/log.json", {"fingerprint": "", "lines": 0})
+    history_state = load_json("state/history.json", {})
+    activity_state = load_json("state/activity.json", {})
 
     # 2. Names: api("files/data/usercache.json/") -> {uuid: name}
     names = {p["uuid"]: p["name"] for p in stats_state.get("players", []) if "uuid" in p and "name" in p}
@@ -403,7 +715,11 @@ def main():
     except Exception as e:
         print(f"warning: status: {e}")
 
-    # 4. Stats + advancements
+    for u in online_uuids:
+        record_activity(activity_state, u, now)
+    prune_activity(activity_state, now)
+
+    # 4. Stats + advancements + player data (.dat)
     player_stats_map = {}
     advancement_events_list = []
     stats_success = False
@@ -429,14 +745,40 @@ def main():
             except Exception:
                 adv_file = {}
 
+            dat_bytes = None
+            local_dat = os.path.join("world", "players", "data", f"{uuid}.dat")
+            if os.path.exists(local_dat):
+                try:
+                    with open(local_dat, "rb") as f:
+                        dat_bytes = f.read()
+                except Exception:
+                    pass
+            if dat_bytes is None:
+                try:
+                    dat_bytes = api(f"files/data/world/players/data/{uuid}.dat/")
+                except Exception:
+                    dat_bytes = None
+
+            ld = None
+            if dat_bytes:
+                try:
+                    ld = last_death(read_nbt(dat_bytes))
+                except Exception:
+                    ld = None
+
             p_name = names.get(uuid, uuid)
             derived = derive(s_obj, de)
+            raw_done = advancement_done(adv_file)
+            filtered_done = [entry for entry in raw_done if entry[0] in adv_keys]
+
             player_stats_map[uuid] = {
                 "name": p_name,
                 "uuid": uuid,
                 "main": derived["main"],
                 "more": derived["more"],
                 "fav": derived["fav"],
+                "adv": {"done": filtered_done},
+                "lastDeath": ld,
             }
             advancement_events_list.extend(advancement_events(adv_file, p_name, de))
         stats_success = True
@@ -487,15 +829,41 @@ def main():
             "main": p_data["main"],
             "more": p_data["more"],
             "fav": p_data["fav"],
+            "adv": p_data.get("adv", {"done": []}),
+            "activity": activity_state.get(uuid, {}),
+            "lastDeath": p_data.get("lastDeath"),
         })
     players_out.sort(key=lambda p: p["main"]["playtime_h"], reverse=True)
+
+    today_berlin = now.astimezone(TZ).strftime("%Y-%m-%d")
+    record_history(history_state, today_berlin, players_out)
+    today_date = now.astimezone(TZ).date()
+    days14 = [(today_date - timedelta(days=13 - i)).strftime("%Y-%m-%d") for i in range(14)]
+    history_players = [
+        {
+            "uuid": p["uuid"],
+            "name": p["name"],
+            "hours": daily_hours(history_state, days14, p["uuid"]),
+        }
+        for p in players_out
+    ]
+    history_data = {
+        "days": days14,
+        "players": history_players,
+    }
+
+    firsts_data = firsts(players_out, titles_dict)
+
     if stats_success or not stats_state.get("players"):
         stats_data = {
             "updated": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "players": players_out,
+            "firsts": firsts_data,
         }
     else:
         stats_data = stats_state
+        if "firsts" not in stats_data:
+            stats_data["firsts"] = firsts(stats_data.get("players", []), titles_dict)
 
     # 8. Events
     events_data = merge_events(events_state, advancement_events_list + death_events_list, limit=300)
@@ -515,6 +883,10 @@ def main():
         json.dump(meta_state, f, ensure_ascii=False, indent=2)
     with open("state/log.json", "w", encoding="utf-8") as f:
         json.dump(log_state, f, ensure_ascii=False, indent=2)
+    with open("state/history.json", "w", encoding="utf-8") as f:
+        json.dump(history_state, f, ensure_ascii=False, indent=2)
+    with open("state/activity.json", "w", encoding="utf-8") as f:
+        json.dump(activity_state, f, ensure_ascii=False, indent=2)
 
     with open("site/data/status.json", "w", encoding="utf-8") as f:
         json.dump(status_data, f, ensure_ascii=False, indent=2)
@@ -522,6 +894,10 @@ def main():
         json.dump(stats_data, f, ensure_ascii=False, indent=2)
     with open("site/data/events.json", "w", encoding="utf-8") as f:
         json.dump(events_data, f, ensure_ascii=False, indent=2)
+    with open("site/data/advancements.json", "w", encoding="utf-8") as f:
+        json.dump(adv_list, f, ensure_ascii=False, indent=2)
+    with open("site/data/history.json", "w", encoding="utf-8") as f:
+        json.dump(history_data, f, ensure_ascii=False, indent=2)
 
     # 10. Player pages
     if os.path.exists("web/spieler.html"):
@@ -540,6 +916,30 @@ def main():
             f.write(icon_data)
     except Exception as e:
         print(f"warning: icon: {e}")
+
+    # 12. Map graves
+    tiles_dir = os.path.join("site", "map", "tiles")
+    if os.path.exists(tiles_dir):
+        now_ms = int(now.timestamp() * 1000)
+        for world_name in os.listdir(tiles_dir):
+            world_path = os.path.join(tiles_dir, world_name)
+            if os.path.isdir(world_path):
+                markers_path = os.path.join(world_path, "markers.json")
+                if os.path.exists(markers_path):
+                    try:
+                        with open(markers_path, "r", encoding="utf-8") as f:
+                            existing_markers = json.load(f)
+                        if not isinstance(existing_markers, list):
+                            existing_markers = []
+                    except Exception:
+                        existing_markers = []
+                    gl = grave_layer(players_out, world_name, now_ms)
+                    updated_markers = add_layer(existing_markers, gl)
+                    try:
+                        with open(markers_path, "w", encoding="utf-8") as f:
+                            json.dump(updated_markers, f, ensure_ascii=False, indent=2)
+                    except Exception as e:
+                        print(f"warning: markers for {world_name}: {e}")
 
 
 if __name__ == "__main__":

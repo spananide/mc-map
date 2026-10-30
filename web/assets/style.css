@@ -618,6 +618,404 @@ a:focus-visible, button:focus-visible {
   padding: 12px 0;
 }
 
+/* Section Header Row with Action Button */
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 28px 0 14px 0;
+}
+
+.section-header-row .section-title {
+  margin: 0;
+}
+
+/* Playtime Stacked Bar Chart */
+.playtime-panel {
+  position: relative;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 20px;
+  margin-bottom: 16px;
+  padding: 6px 0;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #000000;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.legend-label {
+  color: #ffffff;
+  font-size: 0.9rem;
+  text-shadow: 2px 2px 0 #3f3f3f;
+}
+
+.chart-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  min-width: 500px;
+}
+
+.chart-hit-col {
+  cursor: pointer;
+}
+
+.chart-hit-col:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: -2px;
+}
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  padding: 8px 12px;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  background: rgba(0,0,0,.85);
+  border: 2px solid rgba(255,255,255,.2);
+  min-width: 160px;
+}
+
+.tooltip-date {
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #ffff55;
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #dddddd;
+  font-size: 0.8rem;
+}
+
+.tooltip-total {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255,255,255,.2);
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.chart-details {
+  margin-top: 16px;
+}
+
+.chart-details summary {
+  display: inline-flex;
+  cursor: pointer;
+  list-style: none;
+  margin-bottom: 8px;
+}
+
+.chart-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.chart-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.chart-table th, .chart-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+
+.chart-table th {
+  color: #aaaaaa;
+  text-shadow: none;
+}
+
+.chart-table .table-total {
+  font-weight: bold;
+  color: #ffff55;
+}
+
+/* Firsts List */
+.firsts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.first-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.first-row .event-label {
+  color: #55ff55;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.first-row .player-link {
+  flex: 1;
+  color: #ffffff;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.first-row .player-link:hover {
+  text-decoration: underline;
+  color: #ffff55;
+}
+
+.firsts-show-all {
+  margin-top: 12px;
+  align-self: flex-start;
+}
+
+/* Advancements on Player Page */
+.progress-header {
+  font-size: 0.95rem;
+  color: #aaaaaa;
+  margin-bottom: 8px;
+  text-shadow: none;
+}
+
+.progress-bar-slot {
+  height: 18px;
+  padding: 2px;
+  margin-bottom: 16px;
+  position: relative;
+  background: rgba(0,0,0,.6);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background-color: #80ff20;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,.3);
+}
+
+.adv-category {
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.adv-summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-weight: bold;
+  color: #ffffff;
+  user-select: none;
+}
+
+.adv-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 12px 12px;
+}
+
+.adv-item {
+  padding: 6px 10px;
+  border-left: 3px solid #80ff20;
+  background: rgba(255,255,255,.05);
+}
+
+.adv-item.adv-item-dimmed {
+  opacity: 0.45;
+  border-left: 3px solid #555555;
+}
+
+.adv-item-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.adv-title {
+  font-weight: bold;
+  color: #ffffff;
+}
+
+.adv-desc {
+  font-size: 0.8rem;
+  color: #aaaaaa;
+  margin-top: 2px;
+  text-shadow: none;
+}
+
+/* Last Death */
+.death-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.death-location-text {
+  font-size: 1rem;
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.death-map-link {
+  text-decoration: none;
+}
+
+/* Activity Grid (Last 7 Days) */
+.activity-grid-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.activity-day-label {
+  width: 90px;
+  font-size: 0.8rem;
+  color: #aaaaaa;
+  text-shadow: none;
+  flex-shrink: 0;
+}
+
+.activity-cells {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+  flex: 1;
+  min-width: 360px;
+}
+
+.activity-cell {
+  aspect-ratio: 1;
+  min-width: 12px;
+  min-height: 12px;
+  border: 1px solid rgba(0,0,0,.5);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08);
+  cursor: pointer;
+}
+
+.activity-cell:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+.player-compare-btn {
+  margin-top: 8px;
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+/* Compare Page */
+.compare-panel {
+  margin-bottom: 24px;
+}
+
+.compare-selectors-row {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 20px 0 28px 0;
+}
+
+.compare-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.compare-head {
+  width: 48px;
+  height: 48px;
+}
+
+.compare-vs {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #ffff55;
+  text-shadow: 2px 2px 0 #3f3f3f;
+}
+
+.compare-select {
+  min-width: 160px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.compare-select option {
+  background-color: #333333;
+  color: #ffffff;
+}
+
+.compare-table-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compare-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.compare-label {
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.compare-val {
+  font-size: 0.95rem;
+  color: #cccccc;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.compare-val.winner {
+  color: #ffffff;
+}
+
+.compare-val.winner strong {
+  color: #ffffff;
+  font-weight: bold;
+}
+
 /* Mobile & Responsiveness */
 @media (max-width: 639px) {
   body {
@@ -670,6 +1068,22 @@ a:focus-visible, button:focus-visible {
 
   .btn-large {
     width: 100%;
+  }
+
+  .compare-row {
+    grid-template-columns: 1.5fr 1fr 1fr;
+    font-size: 0.85rem;
+    padding: 6px 8px;
+  }
+
+  .compare-selectors-row {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .activity-day-label {
+    width: 60px;
+    font-size: 0.75rem;
   }
 
   .site-footer {

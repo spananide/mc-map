@@ -1,18 +1,31 @@
-from datetime import datetime, timezone
+import gzip
+import struct
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from stats import (
     FOODS,
     TZ,
+    add_layer,
+    advancement_done,
     advancement_events,
+    advancement_list,
+    daily_hours,
     date_lines,
     death_patterns,
     death_text,
     derive,
     event,
+    firsts,
+    grave_layer,
+    last_death,
     log_events,
     merge_events,
     new_log_lines,
     path_name,
+    prune_activity,
+    read_nbt,
+    record_activity,
+    record_history,
     update_meta,
 )
 
@@ -240,6 +253,234 @@ def test_update_meta():
     assert meta["uuid1"]["lastSeen"] == "2026-10-26T14:00:00Z"
 
 
+def test_advancement_list():
+    de = {
+        "advancements.story.root.title": "Minecraft",
+        "advancements.story.mine_stone.title": "Steinzeit",
+        "advancements.story.mine_stone.description": "Baue Stein ab",
+        "advancements.adventure.kill_a_mob.title": "Monsterjäger",
+        "advancements.husbandry.root.title": "Landwirtschaft",
+    }
+    res = advancement_list(de)
+    assert [x["key"] for x in res] == ["story/mine_stone", "adventure/kill_a_mob"]
+    assert res[0]["title"] == "Steinzeit"
+    assert res[0]["description"] == "Baue Stein ab"
+    assert res[1]["title"] == "Monsterjäger"
+    assert res[1]["description"] == ""
+
+
+def test_advancement_done():
+    adv = {
+        "minecraft:adventure/kill_a_mob": {
+            "criteria": {
+                "zombie": "2026-10-26 15:55:11 +0100"
+            },
+            "done": True,
+        },
+        "minecraft:recipes/misc/stick": {
+            "criteria": {
+                "has_wood": "2026-10-26 15:50:00 +0100"
+            },
+            "done": True,
+        },
+        "minecraft:story/mine_stone": {
+            "criteria": {},
+            "done": False,
+        },
+        "minecraft:adventure/root": {
+            "criteria": {
+                "killed_something": "2026-10-26 15:55:11 +0100"
+            },
+            "done": True,
+        },
+        "DataVersion": 4000,
+    }
+    res = advancement_done(adv)
+    # recipes and roots dropped, not-done dropped, times UTC
+    assert res == [["adventure/kill_a_mob", "2026-10-26T14:55:11Z"]]
+
+
+def test_firsts():
+    players = [
+        {
+            "name": "Bob",
+            "adv": {
+                "done": [
+                    ["story/mine_stone", "2026-10-26T12:00:00Z"],
+                    ["adventure/kill_a_mob", "2026-10-26T14:00:00Z"],
+                ]
+            },
+        },
+        {
+            "name": "Alice",
+            "adv": {
+                "done": [
+                    ["story/mine_stone", "2026-10-26T10:00:00Z"],
+                    ["adventure/kill_a_mob", "2026-10-26T14:00:00Z"],
+                ]
+            },
+        },
+    ]
+    titles = {
+        "story/mine_stone": "Steinzeit",
+        "adventure/kill_a_mob": "Monsterjäger",
+    }
+    res = firsts(players, titles)
+    # two players share a key, earlier one wins; tie -> alphabetical; sorted by t desc.
+    assert len(res) == 2
+    assert res[0] == {
+        "key": "adventure/kill_a_mob",
+        "title": "Monsterjäger",
+        "player": "Alice",
+        "t": "2026-10-26T14:00:00Z",
+    }
+    assert res[1] == {
+        "key": "story/mine_stone",
+        "title": "Steinzeit",
+        "player": "Alice",
+        "t": "2026-10-26T10:00:00Z",
+    }
+
+    # Verify tie-breaker when players order is reversed in input
+    players_rev = [players[1], players[0]]
+    assert firsts(players_rev, titles) == res
+
+
+def test_record_history_and_daily_hours():
+    hist = {}
+    day1 = "2026-08-01"
+    day2 = "2026-08-02"
+    day3 = "2026-08-03"
+    players1 = [{"uuid": "u1", "main": {"playtime_h": 1.0}}]
+    record_history(hist, day1, players1)
+    assert hist[day1]["u1"] == 1.0
+
+    players3 = [{"uuid": "u1", "main": {"playtime_h": 3.5}}]
+    record_history(hist, day3, players3)
+    assert hist[day3]["u1"] == 3.5
+
+    daily = daily_hours(hist, [day1, day2, day3], "u1")
+    assert daily == [1.0, 0, 2.5]
+
+    # a day older than 60 days is dropped
+    old_day = "2026-05-01"
+    hist[old_day] = {"u1": 0.5}
+    record_history(hist, day3, players3)
+    assert old_day not in hist
+    assert day1 in hist
+
+
+def test_record_activity_and_prune():
+    act = {}
+    now = datetime(2026, 10, 26, 12, 15, tzinfo=TZ)
+    record_activity(act, "u1", now)
+    record_activity(act, "u1", now)
+    assert act["u1"]["2026-10-26T12"] == 2
+
+    # a key 8 days old is pruned
+    old_dt = now - timedelta(days=8)
+    old_key = old_dt.astimezone(TZ).strftime("%Y-%m-%dT%H")
+    act["u1"][old_key] = 5
+    prune_activity(act, now)
+    assert old_key not in act["u1"]
+    assert act["u1"]["2026-10-26T12"] == 2
+
+
+def test_read_nbt_and_last_death():
+    buf = bytearray()
+    buf += b"\x0a"  # TAG_Compound root
+    buf += struct.pack(">H", 0)  # root name ""
+
+    # String tag
+    buf += b"\x08" + struct.pack(">H", 4) + b"name" + struct.pack(">H", 5) + b"value"
+    # Int tag
+    buf += b"\x03" + struct.pack(">H", 3) + b"num" + struct.pack(">i", 42)
+    # List of Strings
+    buf += b"\x09" + struct.pack(">H", 4) + b"list" + b"\x08" + struct.pack(">i", 2)
+    buf += struct.pack(">H", 1) + b"a" + struct.pack(">H", 1) + b"b"
+
+    # LastDeathLocation compound
+    buf += b"\x0a" + struct.pack(">H", 17) + b"LastDeathLocation"
+    buf += b"\x08" + struct.pack(">H", 9) + b"dimension" + struct.pack(">H", 20) + b"minecraft:the_nether"
+    buf += b"\x0b" + struct.pack(">H", 3) + b"pos" + struct.pack(">i", 3) + struct.pack(">3i", 1, 64, -5)
+    buf += b"\x00"  # TAG_End LastDeathLocation
+
+    buf += b"\x00"  # TAG_End root
+    data = gzip.compress(buf)
+
+    parsed = read_nbt(data)
+    assert parsed["name"] == "value"
+    assert parsed["num"] == 42
+    assert parsed["list"] == ["a", "b"]
+    assert parsed["LastDeathLocation"] == {
+        "dimension": "minecraft:the_nether",
+        "pos": [1, 64, -5],
+    }
+
+    ld = last_death(parsed)
+    assert ld == {"world": "minecraft_the_nether", "x": 1, "y": 64, "z": -5}
+
+    assert last_death({"name": "value"}) is None
+    assert last_death({}) is None
+    assert last_death(None) is None
+
+
+def test_grave_layer_and_add_layer():
+    players = [
+        {
+            "name": "<b>Alice</b>",
+            "lastDeath": {"world": "minecraft_overworld", "x": 10, "y": 64, "z": 20},
+        },
+        {
+            "name": "Bob",
+            "lastDeath": {"world": "minecraft_the_nether", "x": 0, "y": 64, "z": 0},
+        },
+    ]
+    layer = grave_layer(players, "minecraft_overworld", 1000)
+    assert layer is not None
+    assert layer["id"] == "mc-site-graves"
+    assert layer["name"] == "Gräber"
+    assert layer["order"] == 50
+    assert layer["z_index"] == 50
+    assert layer["control"] is True
+    assert layer["hide"] is False
+    assert layer["timestamp"] == 1000
+    assert len(layer["markers"]) == 1
+
+    marker = layer["markers"][0]
+    assert marker["type"] == "icon"
+    assert marker["point"] == {"x": 10, "z": 20}
+    assert marker["size"] == {"x": 16, "z": 16}
+    assert marker["anchor"] == {"x": 8, "z": 8}
+    assert marker["tooltip_anchor"] == {"x": 0, "z": -8}
+    assert marker["icon"] == "grave"
+    assert marker["tooltip"] == "Letzter Tod von &lt;b&gt;Alice&lt;/b&gt;"
+
+    # Nether layer has Bob
+    nether_layer = grave_layer(players, "minecraft_the_nether", 1000)
+    assert nether_layer is not None
+    assert len(nether_layer["markers"]) == 1
+
+    # End layer has no players -> None
+    assert grave_layer(players, "minecraft_the_end", 1000) is None
+
+    # add_layer replaces an old mc-site-graves layer and keeps squaremap's own layers
+    old_markers = [
+        {"id": "squaremap_spawn", "name": "Spawn"},
+        {"id": "mc-site-graves", "name": "Old graves"},
+    ]
+    updated = add_layer(old_markers, layer)
+    assert len(updated) == 2
+    assert updated[0] == {"id": "squaremap_spawn", "name": "Spawn"}
+    assert updated[1]["id"] == "mc-site-graves"
+    assert updated[1]["timestamp"] == 1000
+
+    # If layer is None, removes old mc-site-graves and keeps squaremap layers
+    cleaned = add_layer(old_markers, None)
+    assert len(cleaned) == 1
+    assert cleaned[0] == {"id": "squaremap_spawn", "name": "Spawn"}
+
+
 if __name__ == "__main__":
     test_path_name()
     test_derive()
@@ -250,4 +491,11 @@ if __name__ == "__main__":
     test_new_log_lines()
     test_merge_events()
     test_update_meta()
+    test_advancement_list()
+    test_advancement_done()
+    test_firsts()
+    test_record_history_and_daily_hours()
+    test_record_activity_and_prune()
+    test_read_nbt_and_last_death()
+    test_grave_layer_and_add_layer()
     print("OK")
