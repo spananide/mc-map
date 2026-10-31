@@ -30,12 +30,89 @@ const PALETTE = [
 ];
 
 const GERMAN_WEEKDAYS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+export const WEEKDAYS_MO = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 
 const numFormatter = new Intl.NumberFormat("de-DE", {
   maximumFractionDigits: 1,
 });
 
 export const LIVE_STATUS = "https://mc-tick.spanani.workers.dev/status.json";
+
+export function germanDate(iso) {
+  if (typeof iso !== "string" || !iso) return "";
+  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return "";
+  return `${match[3]}.${match[2]}.${match[1]}`;
+}
+
+export function heatLevel(value, max) {
+  if (typeof value !== "number" || typeof max !== "number" || Number.isNaN(value) || Number.isNaN(max)) {
+    return 0;
+  }
+  if (value <= 0 || max <= 0) {
+    return 0;
+  }
+  return Math.min(4, Math.max(0, Math.ceil((4 * value) / max)));
+}
+
+export function peakLabel(peak) {
+  if (!peak || typeof peak !== "object") return "";
+  const { weekday, hour } = peak;
+  if (typeof weekday !== "number" || typeof hour !== "number" || Number.isNaN(weekday) || Number.isNaN(hour)) {
+    return "";
+  }
+  if (weekday < 0 || weekday > 6 || hour < 0 || hour > 23) {
+    return "";
+  }
+  const day = WEEKDAYS_MO[weekday];
+  return `${day} ${hour}-${hour + 1} Uhr`;
+}
+
+export function dimLabel(dim) {
+  if (dim === "overworld") return "Oberwelt";
+  if (dim === "the_nether") return "Nether";
+  if (dim === "the_end") return "Ende";
+  return dim;
+}
+
+export function tpCommand(o) {
+  const x = o?.x ?? 0;
+  const y = o?.y ?? 0;
+  const z = o?.z ?? 0;
+  return `/tp @s ${x} ${y} ${z}`;
+}
+
+export function mapLink(root, o) {
+  const base = root ?? "";
+  const dim = o?.dim || "";
+  let world;
+  if (dim === "overworld") {
+    world = "minecraft_overworld";
+  } else if (dim === "the_nether") {
+    world = "minecraft_the_nether";
+  } else if (dim === "the_end") {
+    world = "minecraft_the_end";
+  } else if (typeof dim === "string" && dim.startsWith("minecraft_")) {
+    world = dim;
+  } else {
+    world = `minecraft_${dim}`;
+  }
+  const x = o?.x ?? 0;
+  const z = o?.z ?? 0;
+  return `${base}map/?world=${world}&x=${x}&z=${z}`;
+}
+
+export function recordValue(r) {
+  if (!r || typeof r !== "object") return "0";
+  const val = typeof r.value === "number" ? r.value : 0;
+  if (r.unit === "h") {
+    return `${fmt(val)} h`;
+  }
+  return fmt(val);
+}
 
 export function relTime(iso, nowMs) {
   const now = typeof nowMs === "number" ? nowMs : Date.now();
@@ -886,7 +963,7 @@ function renderFirsts(container, firstsList, playerMap, root) {
   container.appendChild(panel);
 }
 
-function renderStats(appEl, root, status, stats, events, playerMap, history, advancements) {
+function renderStats(appEl, root, status, stats, events, playerMap, history, advancements, records, heatmap) {
   if (!stats || !stats.players) {
     appEl.appendChild(el("div", { class: "panel" }, el("p", { class: "empty-msg" }, "Noch keine Daten.")));
     return;
@@ -1032,6 +1109,110 @@ function renderStats(appEl, root, status, stats, events, playerMap, history, adv
   // B4: "Wer war zuerst?"
   renderFirsts(appEl, stats.firsts, playerMap, root);
 
+  // Rekorde
+  appEl.appendChild(el("h2", { class: "section-title" }, "Rekorde"));
+  const recordList = Array.isArray(records?.records) ? records.records : [];
+  if (recordList.length === 0) {
+    appEl.appendChild(el("p", { class: "empty-msg" }, "Noch keine Rekorde."));
+  } else {
+    const recordsGrid = el("div", { class: "records-grid" });
+    for (const r of recordList) {
+      const card = el("div", { class: "panel record-card" });
+      card.appendChild(el("div", { class: "panel-title record-title" }, r.title || "Rekord"));
+      card.appendChild(el("div", { class: "slot record-value" }, recordValue(r)));
+
+      const metaRow = el("div", { class: "record-meta" });
+      const pName = r.player || "Unbekannt";
+      const uuid = r.uuid || playerMap.get(pName.toLowerCase()) || pName;
+
+      const playerWrap = el("div", { class: "record-player-wrap" }, [
+        el("img", {
+          src: `https://mc-heads.net/avatar/${uuid}/24`,
+          alt: pName,
+          class: "player-head",
+          width: 24,
+          height: 24,
+        }),
+        el("a", {
+          href: `${root}spieler/${pathName(pName)}/`,
+          class: "player-link record-player",
+        }, pName),
+      ]);
+      metaRow.appendChild(playerWrap);
+
+      const dateText = germanDate(r.day);
+      if (dateText) {
+        metaRow.appendChild(el("span", { class: "record-date" }, dateText));
+      }
+      card.appendChild(metaRow);
+      recordsGrid.appendChild(card);
+    }
+    appEl.appendChild(recordsGrid);
+  }
+
+  // "Wann ist was los?" Heatmap
+  const heatPanel = el("div", { class: "panel heatmap-panel" });
+  heatPanel.appendChild(el("h2", { class: "panel-title" }, "Wann ist was los?"));
+
+  const hasHeatmapData = heatmap && Array.isArray(heatmap.grid) && typeof heatmap.samples === "number" && heatmap.samples > 0;
+  if (!hasHeatmapData) {
+    heatPanel.appendChild(el("p", { class: "empty-msg" }, "Noch zu wenig Daten."));
+  } else {
+    let maxCell = 0;
+    for (const row of heatmap.grid) {
+      if (Array.isArray(row)) {
+        for (const v of row) {
+          if (typeof v === "number" && v > maxCell) {
+            maxCell = v;
+          }
+        }
+      }
+    }
+
+    const heatGrid = el("div", { class: "heat-grid", role: "grid", "aria-label": "Aktivitäts-Heatmap" });
+
+    // Header: corner + 8 hour labels every 3 hours (0, 3, 6, 9, 12, 15, 18, 21)
+    heatGrid.appendChild(el("div", { class: "heat-label heat-corner" }));
+    for (let h = 0; h < 24; h += 3) {
+      heatGrid.appendChild(el("div", { class: "heat-label heat-hour-label" }, `${h}`));
+    }
+
+    // 7 rows: Montag (0) to Sonntag (6)
+    for (let r = 0; r < 7; r++) {
+      const dayName = WEEKDAYS_MO[r];
+      heatGrid.appendChild(el("div", { class: "heat-label heat-weekday-label" }, dayName));
+
+      const rowData = Array.isArray(heatmap.grid[r]) ? heatmap.grid[r] : [];
+      for (let h = 0; h < 24; h++) {
+        const val = typeof rowData[h] === "number" ? rowData[h] : 0;
+        const level = heatLevel(val, maxCell);
+        const mins = val * 10;
+        const cellLabel = `${dayName} ${h}-${h + 1} Uhr: ca. ${mins} Min.`;
+
+        const cell = el("div", {
+          class: `heat-cell heat-${level}`,
+          title: cellLabel,
+          "aria-label": cellLabel,
+          tabindex: "0",
+        });
+        heatGrid.appendChild(cell);
+      }
+    }
+    heatPanel.appendChild(heatGrid);
+
+    if (heatmap.peak) {
+      const peakStr = peakLabel(heatmap.peak);
+      if (peakStr) {
+        heatPanel.appendChild(el("div", { class: "heatmap-peak" }, `Meist los: ${peakStr}`));
+      }
+    }
+
+    if (typeof heatmap.days === "number" && heatmap.days < 14) {
+      heatPanel.appendChild(el("div", { class: "heatmap-hint panel-subtitle" }, `Basiert auf ${heatmap.days} Tagen Daten - wird mit der Zeit genauer.`));
+    }
+  }
+  appEl.appendChild(heatPanel);
+
   // 4. Latest 20 events
   appEl.appendChild(el("h2", { class: "section-title" }, "Zuletzt passiert"));
   if (events && events.length > 0) {
@@ -1141,6 +1322,21 @@ function renderPlayer(appEl, root, status, stats, events, playerMap, history, ad
   }
   const lastSeenP = el("p", { class: "player-meta", id: "player-live-last-seen" }, lastSeenStr);
   infoDiv.appendChild(lastSeenP);
+
+  // Abzeichen
+  const badgesRow = el("div", { class: "badges-row" });
+  if (Array.isArray(player.badges) && player.badges.length > 0) {
+    for (const b of player.badges) {
+      badgesRow.appendChild(el("span", {
+        class: "badge-chip",
+        title: b.desc || "",
+        "aria-label": b.desc || "",
+      }, b.title || ""));
+    }
+  } else {
+    badgesRow.appendChild(el("span", { class: "empty-msg badge-empty" }, "Noch keine Abzeichen."));
+  }
+  infoDiv.appendChild(badgesRow);
 
   // Button "Vergleichen" (B5)
   const compareBtn = el("a", {
@@ -1578,6 +1774,95 @@ function renderCompare(appEl, root, status, stats, events, playerMap) {
   appEl.appendChild(comparePanel);
 }
 
+function renderOrte(appEl, root, orte) {
+  appEl.appendChild(el("h1", { class: "section-title" }, "Orte"));
+
+  const places = Array.isArray(orte) ? orte : [];
+  if (places.length === 0) {
+    appEl.appendChild(el("p", { class: "empty-msg" }, "Noch keine Orte."));
+    return;
+  }
+
+  const list = el("div", { class: "orte-list" });
+  for (const o of places) {
+    const card = el("div", { class: "panel place-card" });
+
+    const header = el("div", { class: "place-header" }, [
+      el("h2", { class: "panel-title place-name" }, o.name || "Unbenannt"),
+      el("span", { class: "place-dim" }, dimLabel(o.dim)),
+    ]);
+    card.appendChild(header);
+
+    const coords = el("div", { class: "slot place-coords" }, `${o.x} ${o.y} ${o.z}`);
+    card.appendChild(coords);
+
+    if (o.note) {
+      card.appendChild(el("p", { class: "place-note" }, o.note));
+    }
+
+    const actions = el("div", { class: "place-actions" });
+
+    const copyBtn = el("button", { class: "btn place-copy-btn" }, "/tp kopieren");
+    copyBtn.addEventListener("click", () => {
+      try {
+        const p = navigator?.clipboard?.writeText(tpCommand(o));
+        if (p && typeof p.then === "function") {
+          p.then(() => {
+            copyBtn.textContent = "Kopiert!";
+            setTimeout(() => {
+              copyBtn.textContent = "/tp kopieren";
+            }, 1500);
+          }).catch(() => {});
+        }
+      } catch {
+        // swallow errors
+      }
+    });
+    actions.appendChild(copyBtn);
+
+    if (o.dim === "overworld") {
+      const mapBtn = el("a", {
+        href: mapLink(root, o),
+        class: "btn place-map-btn",
+      }, "Auf der Karte");
+      actions.appendChild(mapBtn);
+    }
+
+    card.appendChild(actions);
+    list.appendChild(card);
+  }
+  appEl.appendChild(list);
+}
+
+function renderZeitleiste(appEl, root, timeline) {
+  appEl.appendChild(el("h1", { class: "section-title" }, "Zeitleiste"));
+
+  const items = Array.isArray(timeline) ? timeline : [];
+  if (items.length === 0) {
+    appEl.appendChild(el("p", { class: "empty-msg" }, "Noch keine Einträge."));
+    return;
+  }
+
+  const list = el("div", { class: "timeline-list" });
+  for (const item of items) {
+    const cardClass = item.auto ? "panel timeline-item timeline-auto" : "panel timeline-item";
+    const card = el("div", { class: cardClass });
+
+    const header = el("div", { class: "timeline-header" }, [
+      el("h2", { class: "panel-title timeline-title" }, item.title || ""),
+      el("span", { class: "timeline-date" }, germanDate(item.date)),
+    ]);
+    card.appendChild(header);
+
+    if (item.text) {
+      card.appendChild(el("p", { class: "timeline-text" }, item.text));
+    }
+
+    list.appendChild(card);
+  }
+  appEl.appendChild(list);
+}
+
 async function init() {
   const root = document.body.dataset.root ?? "";
   const page = document.body.dataset.page;
@@ -1594,12 +1879,16 @@ async function init() {
     }
   };
 
-  const [status, stats, events, history, advancements] = await Promise.all([
+  const [status, stats, events, history, advancements, records, heatmap, orte, timeline] = await Promise.all([
     fetchJson("status.json"),
     fetchJson("stats.json"),
     fetchJson("events.json"),
     fetchJson("history.json"),
     fetchJson("advancements.json"),
+    fetchJson("records.json"),
+    fetchJson("heatmap.json"),
+    fetchJson("orte.json"),
+    fetchJson("timeline.json"),
   ]);
 
   // Build name -> uuid lookup map
@@ -1615,6 +1904,13 @@ async function init() {
     for (const p of stats.players) {
       if (p.name && p.uuid) {
         playerMap.set(p.name.toLowerCase(), p.uuid);
+      }
+    }
+  }
+  if (records?.records) {
+    for (const r of records.records) {
+      if (r.player && r.uuid) {
+        playerMap.set(r.player.toLowerCase(), r.uuid);
       }
     }
   }
@@ -1634,11 +1930,15 @@ async function init() {
   if (page === "start") {
     renderStart(appEl, root, status, stats, events, playerMap);
   } else if (page === "stats") {
-    renderStats(appEl, root, status, stats, events, playerMap, history, advancements);
+    renderStats(appEl, root, status, stats, events, playerMap, history, advancements, records, heatmap);
   } else if (page === "player") {
     renderPlayer(appEl, root, status, stats, events, playerMap, history, advancements);
   } else if (page === "compare") {
     renderCompare(appEl, root, status, stats, events, playerMap);
+  } else if (page === "orte") {
+    renderOrte(appEl, root, orte);
+  } else if (page === "zeitleiste") {
+    renderZeitleiste(appEl, root, timeline);
   }
 }
 

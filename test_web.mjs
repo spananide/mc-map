@@ -12,6 +12,13 @@ import {
   activityGrid,
   compareRows,
   LIVE_STATUS,
+  germanDate,
+  heatLevel,
+  peakLabel,
+  dimLabel,
+  tpCommand,
+  mapLink,
+  recordValue,
 } from "./web/assets/app.js";
 
 // 1. relTime
@@ -249,5 +256,82 @@ assert.deepEqual(rows, [
   { label: "Tode", a: 3, b: 3, winner: null },
   { label: "Sprünge", a: 100, b: 100, winner: null },
 ]);
+
+// 13. germanDate (valid and edge cases: invalid date, empty, null, wrong format)
+assert.equal(germanDate("2026-10-30"), "30.10.2026");
+assert.equal(germanDate("2026-01-05"), "05.01.2026");
+assert.equal(germanDate("invalid"), "");
+assert.equal(germanDate(""), "");
+assert.equal(germanDate(null), "");
+assert.equal(germanDate(undefined), "");
+assert.equal(germanDate("2026-13-01"), "");
+assert.equal(germanDate("2026-00-01"), "");
+assert.equal(germanDate("2026-05-32"), "");
+assert.equal(germanDate("2026-05-00"), "");
+assert.equal(germanDate(12345), "");
+
+// 14. heatLevel (0..4, edge cases: max 0, value <= 0, capped at 4)
+assert.equal(heatLevel(0, 10), 0);
+assert.equal(heatLevel(-5, 10), 0);
+assert.equal(heatLevel(5, 0), 0);
+assert.equal(heatLevel(5, -10), 0);
+assert.equal(heatLevel(1, 10), 1);
+assert.equal(heatLevel(2, 10), 1);
+assert.equal(heatLevel(3, 10), 2);
+assert.equal(heatLevel(5, 10), 2);
+assert.equal(heatLevel(8, 10), 4);
+assert.equal(heatLevel(10, 10), 4);
+assert.equal(heatLevel(15, 10), 4);
+assert.equal(heatLevel(null, 10), 0);
+assert.equal(heatLevel(5, null), 0);
+
+// 15. peakLabel (Mo-first weekdays, edge cases: null, undefined, invalid)
+assert.equal(peakLabel({ weekday: 5, hour: 20 }), "Sa 20-21 Uhr");
+assert.equal(peakLabel({ weekday: 0, hour: 0 }), "Mo 0-1 Uhr");
+assert.equal(peakLabel({ weekday: 6, hour: 23 }), "So 23-24 Uhr");
+assert.equal(peakLabel(null), "");
+assert.equal(peakLabel(undefined), "");
+assert.equal(peakLabel({}), "");
+assert.equal(peakLabel({ weekday: -1, hour: 10 }), "");
+assert.equal(peakLabel({ weekday: 7, hour: 10 }), "");
+assert.equal(peakLabel({ weekday: 0, hour: 24 }), "");
+
+// 16. dimLabel (known and unknown dimensions)
+assert.equal(dimLabel("overworld"), "Oberwelt");
+assert.equal(dimLabel("the_nether"), "Nether");
+assert.equal(dimLabel("the_end"), "Ende");
+assert.equal(dimLabel("custom_world"), "custom_world");
+assert.equal(dimLabel("minecraft_overworld"), "minecraft_overworld");
+assert.equal(dimLabel(""), "");
+
+// 17. tpCommand
+assert.equal(tpCommand({ x: 574, y: 85, z: 534 }), "/tp @s 574 85 534");
+assert.equal(tpCommand({ x: -100, y: 64, z: 200 }), "/tp @s -100 64 200");
+assert.equal(tpCommand({}), "/tp @s 0 0 0");
+
+// 18. mapLink
+assert.equal(
+  mapLink("../", { dim: "overworld", x: 574, z: 534 }),
+  "../map/?world=minecraft_overworld&x=574&z=534"
+);
+assert.equal(
+  mapLink("", { dim: "the_nether", x: 100, z: -50 }),
+  "map/?world=minecraft_the_nether&x=100&z=-50"
+);
+assert.equal(
+  mapLink("../../", { dim: "the_end", x: 0, z: 0 }),
+  "../../map/?world=minecraft_the_end&x=0&z=0"
+);
+assert.equal(
+  mapLink("../", { dim: "minecraft_overworld", x: 1, z: 2 }),
+  "../map/?world=minecraft_overworld&x=1&z=2"
+);
+
+// 19. recordValue
+assert.equal(recordValue({ value: 3.4, unit: "h" }), "3,4 h");
+assert.equal(recordValue({ value: 1234, unit: "" }), "1.234");
+assert.equal(recordValue({ value: 50 }), "50");
+assert.equal(recordValue(null), "0");
+assert.equal(recordValue({}), "0");
 
 console.log("OK");

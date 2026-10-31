@@ -1100,3 +1100,327 @@ a:focus-visible, button:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* =============================================================
+   Rekorde, Heatmap, Badges, Orte, Zeitleiste
+   ============================================================= */
+
+:root {
+  --accent: #55ff55;
+  --accent-gold: #ffff55;
+  --slot-bg: rgba(0, 0, 0, 0.55);
+  --panel-bg: rgba(0, 0, 0, 0.6);
+}
+
+/* Rekorde */
+.records-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.record-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.record-title {
+  font-size: 1rem;
+  color: #ffffff;
+  margin-bottom: 0;
+}
+
+.record-value {
+  font-size: 1.4rem;
+  font-weight: bold;
+  color: var(--accent-gold);
+  text-align: center;
+  padding: 8px 12px;
+}
+
+.record-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.record-player-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.record-player {
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: bold;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-player:hover {
+  text-decoration: underline;
+  color: var(--accent-gold);
+}
+
+.record-date {
+  font-size: 0.8rem;
+  color: #dddddd;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Heatmap ("Wann ist was los?") */
+.heatmap-panel {
+  margin-bottom: 24px;
+}
+
+.heat-grid {
+  display: grid;
+  grid-template-columns: auto repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  align-items: center;
+  margin: 14px 0 10px 0;
+  width: 100%;
+}
+
+.heat-label {
+  user-select: none;
+}
+
+.heat-corner {
+  height: 100%;
+}
+
+.heat-hour-label {
+  grid-column: span 3;
+  font-size: 0.7rem;
+  color: #dddddd;
+  text-align: left;
+  padding-left: 1px;
+}
+
+.heat-weekday-label {
+  font-size: 0.75rem;
+  color: #dddddd;
+  text-align: right;
+  padding-right: 6px;
+  white-space: nowrap;
+}
+
+.heat-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.heat-cell:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+.heat-0 {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.heat-1 {
+  background-color: rgba(85, 255, 85, 0.28);
+}
+
+.heat-2 {
+  background-color: rgba(85, 255, 85, 0.52);
+}
+
+.heat-3 {
+  background-color: rgba(85, 255, 85, 0.76);
+}
+
+.heat-4 {
+  background-color: var(--accent);
+}
+
+.heatmap-peak {
+  font-size: 0.95rem;
+  color: #ffffff;
+  font-weight: bold;
+  margin-top: 10px;
+  text-shadow: 2px 2px 0 #3f3f3f;
+}
+
+.heatmap-hint {
+  font-size: 0.8rem;
+  color: #dddddd;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Abzeichen (Badges on Player Page) */
+.badges-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.badge-chip {
+  display: inline-flex;
+  align-items: center;
+  background-color: var(--slot-bg);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.1), inset -1px -1px 0 rgba(0, 0, 0, 0.4);
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  color: var(--accent-gold);
+  text-shadow: 1px 1px 0 #3f3f3f;
+  cursor: help;
+  user-select: none;
+}
+
+.badge-chip:hover {
+  filter: brightness(1.2);
+  border-color: var(--accent-gold);
+}
+
+.badge-empty {
+  padding: 0;
+}
+
+/* Orte (Places) */
+.orte-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.place-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.place-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.place-name {
+  font-size: 1.15rem;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 0;
+}
+
+.place-dim {
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: bold;
+  text-shadow: 1px 1px 0 #111111;
+}
+
+.place-coords {
+  font-size: 0.95rem;
+  font-weight: bold;
+  color: #ffffff;
+  padding: 6px 10px;
+}
+
+.place-note {
+  font-size: 0.9rem;
+  color: #eeeeee;
+  line-height: 1.4;
+}
+
+.place-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.place-copy-btn,
+.place-map-btn {
+  font-size: 0.85rem;
+  padding: 6px 12px;
+}
+
+/* Zeitleiste (Timeline) */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.timeline-auto {
+  opacity: 0.8;
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timeline-title {
+  font-size: 1.1rem;
+  color: #ffffff;
+  margin-bottom: 0;
+}
+
+.timeline-date {
+  font-size: 0.85rem;
+  color: #dddddd;
+  white-space: nowrap;
+}
+
+.timeline-text {
+  font-size: 0.95rem;
+  color: #eeeeee;
+  line-height: 1.4;
+}
+
+/* Mobile Adjustments */
+@media (max-width: 639px) {
+  .heat-grid {
+    gap: 1px;
+  }
+
+  .heat-hour-label {
+    font-size: 0.6rem;
+  }
+
+  .heat-weekday-label {
+    font-size: 0.65rem;
+    padding-right: 3px;
+  }
+
+  .records-grid,
+  .orte-list {
+    grid-template-columns: 1fr;
+  }
+}
