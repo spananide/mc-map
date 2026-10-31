@@ -41,6 +41,8 @@ MERGES: list[tuple[str, str, str, str]] = [
     ("00000000-0000-0000-0009-01f751eac29e", "a1882a86-ef9f-4b76-9f39-8f0c062c206f", ".M48HD", "SirObsidian"),
 ]
 
+ACTIVITY_DAYS: int = 60
+
 LINE_RE = re.compile(r"^\[(\d\d):(\d\d):(\d\d)\] \[([^\]]+)\]: (.*)$")
 
 
@@ -344,7 +346,7 @@ def record_activity(act: dict, uuid: str, now: datetime) -> dict:
 
 def prune_activity(act: dict, now: datetime) -> dict:
     now_tz = now.astimezone(TZ)
-    cutoff = now_tz - timedelta(days=7)
+    cutoff = now_tz - timedelta(days=ACTIVITY_DAYS)
     for uuid, hours in list(act.items()):
         if not isinstance(hours, dict):
             continue
@@ -356,6 +358,48 @@ def prune_activity(act: dict, now: datetime) -> dict:
             except ValueError:
                 pass
     return act
+
+
+def heatmap(act: dict) -> dict:
+    grid = [[0] * 24 for _ in range(7)]
+    total = 0
+    distinct_dates = set()
+    if isinstance(act, dict):
+        for uuid, hours in act.items():
+            if not isinstance(hours, dict):
+                continue
+            for key, samples in hours.items():
+                if not isinstance(key, str) or not isinstance(samples, int) or isinstance(samples, bool):
+                    continue
+                if samples <= 0:
+                    continue
+                try:
+                    dt = datetime.strptime(key, "%Y-%m-%dT%H")
+                except (ValueError, TypeError):
+                    continue
+                w = dt.weekday()
+                h = dt.hour
+                grid[w][h] += samples
+                total += samples
+                distinct_dates.add(dt.strftime("%Y-%m-%d"))
+
+    peak = None
+    if total > 0:
+        best_val = -1
+        best_cell = None
+        for w in range(7):
+            for h in range(24):
+                if grid[w][h] > best_val:
+                    best_val = grid[w][h]
+                    best_cell = {"weekday": w, "hour": h}
+        peak = best_cell
+
+    return {
+        "grid": grid,
+        "samples": total,
+        "days": len(distinct_dates),
+        "peak": peak,
+    }
 
 
 def read_nbt(data: bytes) -> dict:
@@ -485,8 +529,56 @@ def grave_layer(players: list[dict], world: str, now_ms: int) -> dict | None:
     }
 
 
-def add_layer(markers_list: list[dict], layer: dict | None) -> list[dict]:
-    res = [l for l in markers_list if isinstance(l, dict) and l.get("id") != "mc-site-graves"]
+def orte_layer(orte: list[dict], world: str, now_ms: int) -> dict | None:
+    dim_map = {
+        "overworld": "minecraft_overworld",
+        "the_nether": "minecraft_the_nether",
+        "the_end": "minecraft_the_end",
+    }
+    markers = []
+    if isinstance(orte, list):
+        for o in orte:
+            if not isinstance(o, dict):
+                continue
+            dim = o.get("dim")
+            if dim_map.get(dim) != world:
+                continue
+            name = o.get("name", "")
+            note = o.get("note", "")
+            tooltip = html.escape(name) + (" - " + html.escape(note) if note else "")
+            markers.append({
+                "type": "circle",
+                "center": {"x": o["x"], "z": o["z"]},
+                "radius": 6,
+                "stroke": True,
+                "color": "#55ff55",
+                "weight": 3,
+                "fill": True,
+                "fillColor": "#55ff55",
+                "fillOpacity": 0.4,
+                "tooltip": tooltip,
+            })
+    if not markers:
+        return None
+    return {
+        "id": "mc-site-orte",
+        "name": "Orte",
+        "order": 40,
+        "z_index": 40,
+        "control": True,
+        "hide": False,
+        "timestamp": now_ms,
+        "markers": markers,
+    }
+
+
+def drop_layer(markers_list: list[dict], layer_id: str) -> list[dict]:
+    return [l for l in markers_list if isinstance(l, dict) and l.get("id") != layer_id]
+
+
+def add_layer(markers_list: list[dict], layer: dict | None, layer_id: str = "mc-site-graves") -> list[dict]:
+    target_id = layer.get("id") if isinstance(layer, dict) and "id" in layer else layer_id
+    res = drop_layer(markers_list, target_id)
     if layer is not None:
         res.append(layer)
     return res
@@ -694,6 +786,291 @@ def update_meta(meta: dict, uuid: str, times: list[datetime]) -> None:
         }
 
 
+def _badge_val(player: dict, cat: str, field: str):
+    if isinstance(player, dict):
+        sub = player.get(cat)
+        if isinstance(sub, dict) and field in sub:
+            return sub[field]
+        return player.get(field, 0)
+    return 0
+
+
+BADGES: list[tuple] = [
+    ("diamond_fan", "Diamantenfan", "100 Diamanten abgebaut", lambda p: _badge_val(p, "main", "diamonds"), 100),
+    ("globetrotter", "Weltenbummler", "100 km zurückgelegt", lambda p: _badge_val(p, "main", "distance_km"), 100),
+    ("graveyard", "Stammgast des Friedhofs", "10 Mal gestorben", lambda p: _badge_val(p, "main", "deaths"), 10),
+    ("demolition", "Abrissbirne", "10.000 Blöcke abgebaut", lambda p: _badge_val(p, "main", "mined"), 10000),
+    ("monster_hunter", "Monsterjäger", "250 Monster erledigt", lambda p: _badge_val(p, "main", "mob_kills"), 250),
+    ("marathon", "Dauerzocker", "24 Stunden gespielt", lambda p: _badge_val(p, "main", "playtime_h"), 24),
+    ("undying", "Unsterblich", "Ein Totem verbraucht", lambda p: _badge_val(p, "main", "totems"), 1),
+    ("fisher", "Angelprofi", "50 Fische gefangen", lambda p: _badge_val(p, "more", "fish_caught"), 50),
+    ("breeder", "Tierfreund", "25 Tiere gezüchtet", lambda p: _badge_val(p, "more", "animals_bred"), 25),
+    ("trader", "Händler", "25 Mal mit Dorfbewohnern gehandelt", lambda p: _badge_val(p, "more", "trades"), 25),
+]
+
+
+def badges(player: dict) -> list[dict]:
+    result = []
+    if not isinstance(player, dict):
+        return result
+    for b_id, title, desc, getter, threshold in BADGES:
+        try:
+            val = getter(player)
+            if val is not None and val >= threshold:
+                result.append({"id": b_id, "title": title, "desc": desc})
+        except Exception:
+            pass
+    return result
+
+
+def records(history: dict, events: list[dict], players: list[dict]) -> dict:
+    res = {}
+    days = sorted(history.keys()) if isinstance(history, dict) else []
+    uuid_to_name = {p["uuid"]: p.get("name", "") for p in players if isinstance(p, dict) and "uuid" in p}
+    name_to_uuid = {p["name"]: p.get("uuid", "") for p in players if isinstance(p, dict) and "name" in p}
+
+    history_uuids = set()
+    if isinstance(history, dict):
+        for day_val in history.values():
+            if isinstance(day_val, dict):
+                history_uuids.update(day_val.keys())
+
+    best_longest = None
+    for uuid in sorted(history_uuids):
+        if uuid not in uuid_to_name:
+            continue
+        p_name = uuid_to_name[uuid]
+        hours = daily_hours(history, days, uuid)
+        for day_str, val in zip(days, hours):
+            if val > 0:
+                cand = (-val, day_str, p_name, uuid, val)
+                if best_longest is None or cand < best_longest:
+                    best_longest = cand
+
+    if best_longest is not None:
+        _, day_str, p_name, uuid, val = best_longest
+        res["longest_day"] = {
+            "id": "longest_day",
+            "title": "Längster Spieltag",
+            "player": p_name,
+            "uuid": uuid,
+            "value": val,
+            "unit": "h",
+            "day": day_str,
+        }
+
+    death_counts: dict[tuple[str, str], int] = {}
+    adv_counts: dict[tuple[str, str], int] = {}
+    if isinstance(events, list):
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            ev_type = ev.get("type")
+            if ev_type not in ("death", "advancement"):
+                continue
+            p_name = ev.get("player")
+            t_str = ev.get("t")
+            if not p_name or not isinstance(p_name, str) or not t_str or not isinstance(t_str, str):
+                continue
+            try:
+                if t_str.endswith("Z"):
+                    dt = datetime.strptime(t_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(TZ)
+                else:
+                    dt = datetime.fromisoformat(t_str).astimezone(TZ)
+            except (ValueError, TypeError):
+                continue
+            day_str = dt.strftime("%Y-%m-%d")
+            if ev_type == "death":
+                death_counts[(day_str, p_name)] = death_counts.get((day_str, p_name), 0) + 1
+            elif ev_type == "advancement":
+                adv_counts[(day_str, p_name)] = adv_counts.get((day_str, p_name), 0) + 1
+
+    best_death = None
+    for (day_str, p_name), count in death_counts.items():
+        if count > 0:
+            cand = (-count, day_str, p_name)
+            if best_death is None or cand < best_death:
+                best_death = cand
+
+    if best_death is not None:
+        neg_count, day_str, p_name = best_death
+        res["deaths_day"] = {
+            "id": "deaths_day",
+            "title": "Meiste Tode an einem Tag",
+            "player": p_name,
+            "uuid": name_to_uuid.get(p_name, ""),
+            "value": -neg_count,
+            "unit": "",
+            "day": day_str,
+        }
+
+    best_adv = None
+    for (day_str, p_name), count in adv_counts.items():
+        if count > 0:
+            cand = (-count, day_str, p_name)
+            if best_adv is None or cand < best_adv:
+                best_adv = cand
+
+    if best_adv is not None:
+        neg_count, day_str, p_name = best_adv
+        res["adv_day"] = {
+            "id": "adv_day",
+            "title": "Meiste Fortschritte an einem Tag",
+            "player": p_name,
+            "uuid": name_to_uuid.get(p_name, ""),
+            "value": -neg_count,
+            "unit": "",
+            "day": day_str,
+        }
+
+    return res
+
+
+def merge_records(old: dict, new: dict) -> dict:
+    result = dict(old) if isinstance(old, dict) else {}
+    if not isinstance(new, dict):
+        return result
+    for rid, new_entry in new.items():
+        if rid not in result:
+            result[rid] = new_entry
+        else:
+            old_entry = result[rid]
+            new_val = new_entry.get("value", 0) if isinstance(new_entry, dict) else 0
+            old_val = old_entry.get("value", 0) if isinstance(old_entry, dict) else 0
+            if new_val > old_val:
+                result[rid] = new_entry
+    return result
+
+
+def load_orte(path: str = "data/orte.json") -> list[dict]:
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    valid = []
+    seen_ids = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        oid = item.get("id")
+        name = item.get("name")
+        dim = item.get("dim")
+        x = item.get("x")
+        y = item.get("y")
+        z = item.get("z")
+        note = item.get("note", "")
+        if note is None:
+            note = ""
+
+        if not isinstance(oid, str) or not oid:
+            continue
+        if not isinstance(name, str) or not (1 <= len(name) <= 40):
+            continue
+        if dim not in ("overworld", "the_nether", "the_end"):
+            continue
+        if not isinstance(x, int) or isinstance(x, bool):
+            continue
+        if not isinstance(y, int) or isinstance(y, bool):
+            continue
+        if not isinstance(z, int) or isinstance(z, bool):
+            continue
+        if not isinstance(note, str) or len(note) > 200:
+            continue
+
+        if oid in seen_ids:
+            continue
+        seen_ids.add(oid)
+
+        valid.append({
+            "id": oid,
+            "name": name,
+            "dim": dim,
+            "x": x,
+            "y": y,
+            "z": z,
+            "note": note,
+        })
+    return valid
+
+
+def load_timeline(path: str = "data/timeline.json") -> list[dict]:
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    valid = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        d = item.get("date")
+        title = item.get("title")
+        text = item.get("text", "")
+        if text is None:
+            text = ""
+        if not isinstance(d, str) or not re.match(r"^\d{4}-\d{2}-\d{2}$", d):
+            continue
+        if not isinstance(title, str) or not (1 <= len(title) <= 80):
+            continue
+        if not isinstance(text, str) or len(text) > 300:
+            continue
+        valid.append({
+            "date": d,
+            "title": title,
+            "text": text,
+        })
+    return valid
+
+
+def timeline(manual: list[dict], players: list[dict]) -> list[dict]:
+    items = []
+    if isinstance(manual, list):
+        for m in manual:
+            if isinstance(m, dict) and "date" in m and "title" in m:
+                items.append({
+                    "date": m["date"],
+                    "title": m["title"],
+                    "text": m.get("text", "") or "",
+                    "auto": False,
+                })
+
+    if isinstance(players, list):
+        for p in players:
+            if not isinstance(p, dict):
+                continue
+            first_seen = p.get("firstSeen")
+            if isinstance(first_seen, str) and first_seen:
+                name = p.get("name", "")
+                items.append({
+                    "date": first_seen[:10],
+                    "title": f"{name} ist der Gemeinschaft beigetreten",
+                    "text": "",
+                    "auto": True,
+                })
+
+    def sort_key(item: dict):
+        d_str = item["date"].replace("-", "")
+        try:
+            d_val = -int(d_str)
+        except ValueError:
+            d_val = 0
+        return (d_val, 1 if item.get("auto") else 0, item.get("title", ""))
+
+    items.sort(key=sort_key)
+    return items
+
+
 def main():
     from sync import api
 
@@ -733,6 +1110,7 @@ def main():
     log_state = load_json("state/log.json", {"fingerprint": "", "lines": 0})
     history_state = load_json("state/history.json", {})
     activity_state = load_json("state/activity.json", {})
+    records_state = load_json("state/records.json", {})
 
     # 2. Names: api("files/data/usercache.json/") -> {uuid: name}
     names = {p["uuid"]: p["name"] for p in stats_state.get("players", []) if "uuid" in p and "name" in p}
@@ -896,6 +1274,7 @@ def main():
             "adv": p_data.get("adv", {"done": []}),
             "activity": activity_state.get(uuid, {}),
             "lastDeath": p_data.get("lastDeath"),
+            "badges": badges(p_data),
         })
     players_out.sort(key=lambda p: p["main"]["playtime_h"], reverse=True)
 
@@ -906,6 +1285,7 @@ def main():
     record_history(history_state, today_berlin, players_out)
     for src_uuid, dst_uuid, _, _ in MERGES:
         merge_state(meta_state, history_state, activity_state, src_uuid, dst_uuid)
+    heatmap_data = heatmap(activity_state)
     today_date = now.astimezone(TZ).date()
     days14 = [(today_date - timedelta(days=13 - i)).strftime("%Y-%m-%d") for i in range(14)]
     history_players = [
@@ -939,6 +1319,17 @@ def main():
     for _, _, src_name, dst_name in MERGES:
         events_data = rename_events(events_data, src_name, dst_name)
 
+    records_data = records(history_state, events_data, players_out)
+    records_merged = merge_records(records_state, records_data)
+    records_order = ["longest_day", "deaths_day", "adv_day"]
+    records_site = {
+        "records": [records_merged[rid] for rid in records_order if rid in records_merged]
+    }
+
+    orte_data = load_orte()
+    timeline_manual = load_timeline()
+    timeline_data = timeline(timeline_manual, players_out)
+
     # 9. Write all state files, copy to site/data/
     os.makedirs("state", exist_ok=True)
     os.makedirs("site/data", exist_ok=True)
@@ -958,6 +1349,8 @@ def main():
         json.dump(history_state, f, ensure_ascii=False, indent=2)
     with open("state/activity.json", "w", encoding="utf-8") as f:
         json.dump(activity_state, f, ensure_ascii=False, indent=2)
+    with open("state/records.json", "w", encoding="utf-8") as f:
+        json.dump(records_merged, f, ensure_ascii=False, indent=2)
 
     with open("site/data/status.json", "w", encoding="utf-8") as f:
         json.dump(status_data, f, ensure_ascii=False, indent=2)
@@ -969,6 +1362,14 @@ def main():
         json.dump(adv_list, f, ensure_ascii=False, indent=2)
     with open("site/data/history.json", "w", encoding="utf-8") as f:
         json.dump(history_data, f, ensure_ascii=False, indent=2)
+    with open("site/data/heatmap.json", "w", encoding="utf-8") as f:
+        json.dump(heatmap_data, f, ensure_ascii=False, indent=2)
+    with open("site/data/records.json", "w", encoding="utf-8") as f:
+        json.dump(records_site, f, ensure_ascii=False, indent=2)
+    with open("site/data/orte.json", "w", encoding="utf-8") as f:
+        json.dump(orte_data, f, ensure_ascii=False, indent=2)
+    with open("site/data/timeline.json", "w", encoding="utf-8") as f:
+        json.dump(timeline_data, f, ensure_ascii=False, indent=2)
 
     # 10. Player pages
     if os.path.exists("web/spieler.html"):
@@ -988,7 +1389,7 @@ def main():
     except Exception as e:
         print(f"warning: icon: {e}")
 
-    # 12. Map graves
+    # 12. Map graves and places
     tiles_dir = os.path.join("site", "map", "tiles")
     if os.path.exists(tiles_dir):
         now_ms = int(now.timestamp() * 1000)
@@ -1006,6 +1407,8 @@ def main():
                         existing_markers = []
                     gl = grave_layer(players_out, world_name, now_ms)
                     updated_markers = add_layer(existing_markers, gl)
+                    ol = orte_layer(orte_data, world_name, now_ms)
+                    updated_markers = add_layer(updated_markers, ol, layer_id="mc-site-orte")
                     try:
                         with open(markers_path, "w", encoding="utf-8") as f:
                             json.dump(updated_markers, f, ensure_ascii=False, indent=2)

@@ -1,9 +1,13 @@
 import copy
 import gzip
+import json
+import os
 import struct
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from stats import (
+    ACTIVITY_DAYS,
+    BADGES,
     FOODS,
     MERGES,
     TZ,
@@ -11,25 +15,34 @@ from stats import (
     advancement_done,
     advancement_events,
     advancement_list,
+    badges,
     daily_hours,
     date_lines,
     death_patterns,
     death_text,
     derive,
+    drop_layer,
     event,
     firsts,
     grave_layer,
+    heatmap,
     last_death,
+    load_orte,
+    load_timeline,
     log_events,
     merge_events,
+    merge_records,
     merge_state,
     new_log_lines,
+    orte_layer,
     path_name,
     prune_activity,
     read_nbt,
     record_activity,
     record_history,
+    records,
     rename_events,
+    timeline,
     update_meta,
 )
 
@@ -382,18 +395,32 @@ def test_record_history_and_daily_hours():
 
 
 def test_record_activity_and_prune():
+    assert ACTIVITY_DAYS == 60
     act = {}
     now = datetime(2026, 10, 26, 12, 15, tzinfo=TZ)
     record_activity(act, "u1", now)
     record_activity(act, "u1", now)
     assert act["u1"]["2026-10-26T12"] == 2
 
-    # a key 8 days old is pruned
-    old_dt = now - timedelta(days=8)
-    old_key = old_dt.astimezone(TZ).strftime("%Y-%m-%dT%H")
-    act["u1"][old_key] = 5
+    # an 8-day-old key is kept under 60-day retention
+    dt_8 = now - timedelta(days=8)
+    key_8 = dt_8.astimezone(TZ).strftime("%Y-%m-%dT%H")
+    act["u1"][key_8] = 5
+
+    # a 59-day-old key is kept
+    dt_59 = now - timedelta(days=59)
+    key_59 = dt_59.astimezone(TZ).strftime("%Y-%m-%dT%H")
+    act["u1"][key_59] = 3
+
+    # a 61-day-old key is pruned
+    dt_61 = now - timedelta(days=61)
+    key_61 = dt_61.astimezone(TZ).strftime("%Y-%m-%dT%H")
+    act["u1"][key_61] = 7
+
     prune_activity(act, now)
-    assert old_key not in act["u1"]
+    assert key_61 not in act["u1"]
+    assert act["u1"][key_8] == 5
+    assert act["u1"][key_59] == 3
     assert act["u1"]["2026-10-26T12"] == 2
 
 
@@ -597,6 +624,426 @@ def test_merge_accounts():
     }
 
 
+def test_heatmap():
+    # Empty case
+    res_empty = heatmap({})
+    assert res_empty["samples"] == 0
+    assert res_empty["days"] == 0
+    assert res_empty["peak"] is None
+    assert len(res_empty["grid"]) == 7
+    for row in res_empty["grid"]:
+        assert len(row) == 24
+        assert row == [0] * 24
+
+    # Non-dict / malformed keys ignored
+    bad_act = {
+        "u1": "not a dict",
+        "u2": None,
+        "u3": {
+            "invalid_key": 5,
+            "2026-99-99T99": 5,
+            123: 5,
+            "2026-10-26T10": "invalid_sample",
+            "2026-10-26T11": True,
+            "2026-10-26T12": 0,
+            "2026-10-26T13": -2,
+        },
+    }
+    res_bad = heatmap(bad_act)
+    assert res_bad["samples"] == 0
+    assert res_bad["days"] == 0
+    assert res_bad["peak"] is None
+
+    # Normal case:
+    # 2026-10-26 is Monday (weekday 0)
+    # 2026-10-27 is Tuesday (weekday 1)
+    act = {
+        "u1": {
+            "2026-10-26T14": 3,
+            "2026-10-26T15": 2,
+        },
+        "u2": {
+            "2026-10-26T14": 4,
+            "2026-10-27T10": 1,
+        },
+    }
+    res = heatmap(act)
+    assert res["samples"] == 10
+    assert res["days"] == 2
+    assert res["grid"][0][14] == 7
+    assert res["grid"][0][15] == 2
+    assert res["grid"][1][10] == 1
+    assert res["peak"] == {"weekday": 0, "hour": 14}
+
+    # Ties: first wins on ties (weekday 0, hour 5 vs weekday 1, hour 2)
+    act_tie = {
+        "u1": {
+            "2026-10-26T05": 5,
+            "2026-10-27T02": 5,
+        }
+    }
+    res_tie = heatmap(act_tie)
+    assert res_tie["peak"] == {"weekday": 0, "hour": 5}
+
+
+def test_records():
+    players = [
+        {"name": "Alice", "uuid": "u1"},
+        {"name": "Bob", "uuid": "u2"},
+        {"name": "Charlie", "uuid": "u3"},
+    ]
+    history = {
+        "2026-10-26": {"u1": 2.0, "u2": 1.0},
+        "2026-10-27": {"u1": 5.0, "u2": 6.5},
+        "2026-10-28": {"u1": 11.0, "u2": 8.0},
+    }
+
+    events = [
+        {"type": "death", "player": "Alice", "t": "2026-10-26T10:00:00Z"},
+        {"type": "death", "player": "Alice", "t": "2026-10-26T12:00:00Z"},
+        {"type": "death", "player": "Bob", "t": "2026-10-26T15:00:00Z"},
+        {"type": "advancement", "player": "Charlie", "t": "2026-10-27T10:00:00Z"},
+        {"type": "advancement", "player": "Charlie", "t": "2026-10-27T11:00:00Z"},
+        {"type": "advancement", "player": "Charlie", "t": "2026-10-27T12:00:00Z"},
+    ]
+
+    rec = records(history, events, players)
+    assert rec["longest_day"] == {
+        "id": "longest_day",
+        "title": "Längster Spieltag",
+        "player": "Alice",
+        "uuid": "u1",
+        "value": 6.0,
+        "unit": "h",
+        "day": "2026-10-28",
+    }
+    assert rec["deaths_day"] == {
+        "id": "deaths_day",
+        "title": "Meiste Tode an einem Tag",
+        "player": "Alice",
+        "uuid": "u1",
+        "value": 2,
+        "unit": "",
+        "day": "2026-10-26",
+    }
+    assert rec["adv_day"] == {
+        "id": "adv_day",
+        "title": "Meiste Fortschritte an einem Tag",
+        "player": "Charlie",
+        "uuid": "u3",
+        "value": 3,
+        "unit": "",
+        "day": "2026-10-27",
+    }
+
+    # Unknown player in events -> uuid is ""
+    events_unknown = [
+        {"type": "death", "player": "UnknownPlayer", "t": "2026-10-26T10:00:00Z"}
+    ]
+    rec_unk = records({}, events_unknown, players)
+    assert rec_unk["deaths_day"]["uuid"] == ""
+    assert "longest_day" not in rec_unk
+    assert "adv_day" not in rec_unk
+
+    # Tie breaking:
+    # 1. Earliest day wins on tie
+    hist_tie_day = {
+        "2026-10-25": {"u1": 5.0},
+        "2026-10-26": {"u1": 10.0},
+        "2026-10-27": {"u1": 15.0},
+    }
+    rec_tie_day = records(hist_tie_day, [], players)
+    assert rec_tie_day["longest_day"]["day"] == "2026-10-26"
+
+    # 2. Player name alphabetical on tie of day & value
+    hist_tie_name = {
+        "2026-10-25": {"u1": 0.0, "u2": 0.0},
+        "2026-10-26": {"u1": 5.0, "u2": 5.0},
+    }
+    rec_tie_name = records(hist_tie_name, [], players)
+    assert rec_tie_name["longest_day"]["player"] == "Alice"
+
+    # Value 0 not included
+    assert records({}, [], players) == {}
+
+    # merge_records: keeps higher value, old on tie, keeps unilateral ids
+    old_records = {
+        "longest_day": {"id": "longest_day", "value": 5.0, "player": "Alice"},
+        "deaths_day": {"id": "deaths_day", "value": 10, "player": "Bob"},
+    }
+    new_records = {
+        "longest_day": {"id": "longest_day", "value": 7.5, "player": "Charlie"},
+        "deaths_day": {"id": "deaths_day", "value": 10, "player": "Alice"},
+        "adv_day": {"id": "adv_day", "value": 4, "player": "Bob"},
+    }
+    merged = merge_records(old_records, new_records)
+    assert merged["longest_day"]["value"] == 7.5
+    assert merged["longest_day"]["player"] == "Charlie"
+    assert merged["deaths_day"]["value"] == 10
+    assert merged["deaths_day"]["player"] == "Bob"
+    assert merged["adv_day"]["value"] == 4
+
+
+def test_badges():
+    # Empty / low stats -> no badges
+    p_empty = {"main": {}, "more": {}}
+    assert badges(p_empty) == []
+
+    # Check each badge at threshold and below threshold
+    # 1. diamond_fan: main.diamonds >= 100
+    p1 = {"main": {"diamonds": 99}, "more": {}}
+    assert badges(p1) == []
+    p1["main"]["diamonds"] = 100
+    assert [b["id"] for b in badges(p1)] == ["diamond_fan"]
+
+    # 2. globetrotter: main.distance_km >= 100
+    p2 = {"main": {"distance_km": 99.9}, "more": {}}
+    assert badges(p2) == []
+    p2["main"]["distance_km"] = 100.0
+    assert [b["id"] for b in badges(p2)] == ["globetrotter"]
+
+    # 3. graveyard: main.deaths >= 10
+    p3 = {"main": {"deaths": 9}, "more": {}}
+    assert badges(p3) == []
+    p3["main"]["deaths"] = 10
+    assert [b["id"] for b in badges(p3)] == ["graveyard"]
+
+    # 4. demolition: main.mined >= 10000
+    p4 = {"main": {"mined": 9999}, "more": {}}
+    assert badges(p4) == []
+    p4["main"]["mined"] = 10000
+    assert [b["id"] for b in badges(p4)] == ["demolition"]
+
+    # 5. monster_hunter: main.mob_kills >= 250
+    p5 = {"main": {"mob_kills": 249}, "more": {}}
+    assert badges(p5) == []
+    p5["main"]["mob_kills"] = 250
+    assert [b["id"] for b in badges(p5)] == ["monster_hunter"]
+
+    # 6. marathon: main.playtime_h >= 24
+    p6 = {"main": {"playtime_h": 23.9}, "more": {}}
+    assert badges(p6) == []
+    p6["main"]["playtime_h"] = 24.0
+    assert [b["id"] for b in badges(p6)] == ["marathon"]
+
+    # 7. undying: main.totems >= 1
+    p7 = {"main": {"totems": 0}, "more": {}}
+    assert badges(p7) == []
+    p7["main"]["totems"] = 1
+    assert [b["id"] for b in badges(p7)] == ["undying"]
+
+    # 8. fisher: more.fish_caught >= 50
+    p8 = {"main": {}, "more": {"fish_caught": 49}}
+    assert badges(p8) == []
+    p8["more"]["fish_caught"] = 50
+    assert [b["id"] for b in badges(p8)] == ["fisher"]
+
+    # 9. breeder: more.animals_bred >= 25
+    p9 = {"main": {}, "more": {"animals_bred": 24}}
+    assert badges(p9) == []
+    p9["more"]["animals_bred"] = 25
+    assert [b["id"] for b in badges(p9)] == ["breeder"]
+
+    # 10. trader: more.trades >= 25
+    p10 = {"main": {}, "more": {"trades": 24}}
+    assert badges(p10) == []
+    p10["more"]["trades"] = 25
+    assert [b["id"] for b in badges(p10)] == ["trader"]
+
+    # All badges earned together -> exact table order and format
+    p_all = {
+        "main": {
+            "diamonds": 150,
+            "distance_km": 200,
+            "deaths": 12,
+            "mined": 20000,
+            "mob_kills": 300,
+            "playtime_h": 50,
+            "totems": 2,
+        },
+        "more": {
+            "fish_caught": 60,
+            "animals_bred": 30,
+            "trades": 40,
+        },
+    }
+    all_b = badges(p_all)
+    assert len(all_b) == 10
+    expected_order = [
+        "diamond_fan",
+        "globetrotter",
+        "graveyard",
+        "demolition",
+        "monster_hunter",
+        "marathon",
+        "undying",
+        "fisher",
+        "breeder",
+        "trader",
+    ]
+    assert [b["id"] for b in all_b] == expected_order
+    for b in all_b:
+        assert set(b.keys()) == {"id", "title", "desc"}
+
+
+def test_load_orte():
+    import tempfile
+
+    # Seed file load
+    seed = load_orte("data/orte.json")
+    assert len(seed) == 1
+    assert seed[0] == {
+        "id": "lager",
+        "name": "Lager",
+        "dim": "overworld",
+        "x": 574,
+        "y": 85,
+        "z": 534,
+        "note": "Kisten-Lager",
+    }
+
+    # Missing file
+    assert load_orte("nonexistent/path/orte.json") == []
+
+    # Invalid file / validation tests
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as f:
+        json.dump([
+            {"id": "o1", "name": "Base", "dim": "overworld", "x": 10, "y": 64, "z": 20},
+            {"id": "o2", "name": "Portal", "dim": "the_nether", "x": 0, "y": 70, "z": 0, "note": "Nether hub"},
+            {"id": "o1", "name": "Duplicate Base", "dim": "overworld", "x": 11, "y": 64, "z": 20},
+            {"id": "", "name": "Empty ID", "dim": "overworld", "x": 0, "y": 0, "z": 0},
+            {"id": "bad_name1", "name": "", "dim": "overworld", "x": 0, "y": 0, "z": 0},
+            {"id": "bad_name2", "name": "x" * 41, "dim": "overworld", "x": 0, "y": 0, "z": 0},
+            {"id": "bad_dim", "name": "Bad Dim", "dim": "moon", "x": 0, "y": 0, "z": 0},
+            {"id": "bad_x_bool", "name": "Bool X", "dim": "overworld", "x": True, "y": 64, "z": 0},
+            {"id": "bad_y_str", "name": "Str Y", "dim": "overworld", "x": 0, "y": "64", "z": 0},
+            {"id": "bad_note", "name": "Long Note", "dim": "the_end", "x": 0, "y": 64, "z": 0, "note": "a" * 201},
+        ], f)
+        temp_path = f.name
+
+    try:
+        loaded = load_orte(temp_path)
+        assert len(loaded) == 2
+        assert loaded[0] == {"id": "o1", "name": "Base", "dim": "overworld", "x": 10, "y": 64, "z": 20, "note": ""}
+        assert loaded[1] == {"id": "o2", "name": "Portal", "dim": "the_nether", "x": 0, "y": 70, "z": 0, "note": "Nether hub"}
+    finally:
+        os.remove(temp_path)
+
+
+def test_orte_layer_and_layers():
+    orte = [
+        {"id": "o1", "name": "Overworld Base", "dim": "overworld", "x": 100, "y": 64, "z": 200, "note": "Main base"},
+        {"id": "o2", "name": "Mine", "dim": "overworld", "x": 150, "y": 12, "z": 250, "note": ""},
+        {"id": "o3", "name": "Nether Fortress", "dim": "the_nether", "x": 50, "y": 60, "z": -100, "note": "Blaze spawn"},
+    ]
+
+    layer_ow = orte_layer(orte, "minecraft_overworld", 5000)
+    assert layer_ow is not None
+    assert layer_ow["id"] == "mc-site-orte"
+    assert layer_ow["name"] == "Orte"
+    assert layer_ow["order"] == 40
+    assert layer_ow["z_index"] == 40
+    assert layer_ow["control"] is True
+    assert layer_ow["hide"] is False
+    assert layer_ow["timestamp"] == 5000
+    assert len(layer_ow["markers"]) == 2
+
+    m1 = layer_ow["markers"][0]
+    assert m1["type"] == "circle"
+    assert m1["center"] == {"x": 100, "z": 200}
+    assert m1["radius"] == 6
+    assert m1["stroke"] is True
+    assert m1["color"] == "#55ff55"
+    assert m1["weight"] == 3
+    assert m1["fill"] is True
+    assert m1["fillColor"] == "#55ff55"
+    assert m1["fillOpacity"] == 0.4
+    assert m1["tooltip"] == "Overworld Base - Main base"
+
+    m2 = layer_ow["markers"][1]
+    assert m2["tooltip"] == "Mine"
+
+    # End world has no markers -> None
+    assert orte_layer(orte, "minecraft_the_end", 5000) is None
+
+    # add_layer and drop_layer with multiple layers
+    graves_layer = {"id": "mc-site-graves", "name": "Gräber", "markers": []}
+    other_layer = {"id": "squaremap_spawn", "name": "Spawn", "markers": []}
+    markers = [other_layer, graves_layer]
+
+    # add orte layer: keeps squaremap and graves layers untouched
+    updated = add_layer(markers, layer_ow, layer_id="mc-site-orte")
+    assert len(updated) == 3
+    assert updated[0]["id"] == "squaremap_spawn"
+    assert updated[1]["id"] == "mc-site-graves"
+    assert updated[2]["id"] == "mc-site-orte"
+
+    # drop_layer
+    dropped = drop_layer(updated, "mc-site-orte")
+    assert len(dropped) == 2
+    assert [l["id"] for l in dropped] == ["squaremap_spawn", "mc-site-graves"]
+
+    # add_layer with None removes target layer
+    removed_orte = add_layer(updated, None, layer_id="mc-site-orte")
+    assert [l["id"] for l in removed_orte] == ["squaremap_spawn", "mc-site-graves"]
+
+    # graves default untouched: add_layer(markers, None) removes mc-site-graves
+    removed_graves = add_layer(updated, None)
+    assert [l["id"] for l in removed_graves] == ["squaremap_spawn", "mc-site-orte"]
+
+
+def test_timeline():
+    import tempfile
+
+    # Load seed file
+    seed = load_timeline("data/timeline.json")
+    assert len(seed) == 4
+    assert seed[0]["date"] == "2026-10-26"
+    assert seed[0]["title"] == "Neue Welt"
+
+    # Validation
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as f:
+        json.dump([
+            {"date": "2026-10-26", "title": "Valid Event", "text": "Valid text"},
+            {"date": "2026-10-26", "title": "No text"},
+            {"date": "bad_date", "title": "Bad Date", "text": ""},
+            {"date": "2026-10-26", "title": "", "text": ""},
+            {"date": "2026-10-26", "title": "t" * 81, "text": ""},
+            {"date": "2026-10-26", "title": "Long text", "text": "a" * 301},
+        ], f)
+        temp_path = f.name
+
+    try:
+        loaded = load_timeline(temp_path)
+        assert len(loaded) == 2
+        assert loaded[0] == {"date": "2026-10-26", "title": "Valid Event", "text": "Valid text"}
+        assert loaded[1] == {"date": "2026-10-26", "title": "No text", "text": ""}
+    finally:
+        os.remove(temp_path)
+
+    manual = [
+        {"date": "2026-10-26", "title": "B-Manual", "text": "text1"},
+        {"date": "2026-10-26", "title": "A-Manual", "text": "text2"},
+        {"date": "2026-10-28", "title": "Later Manual", "text": "text3"},
+    ]
+    players = [
+        {"name": "Bob", "firstSeen": "2026-10-26T14:00:00Z"},
+        {"name": "Alice", "firstSeen": "2026-10-26T10:00:00Z"},
+        {"name": "Charlie", "firstSeen": ""},
+        {"name": "David"},
+        {"name": "Eve", "firstSeen": "2026-10-27T10:00:00Z"},
+    ]
+
+    tl = timeline(manual, players)
+    assert len(tl) == 6
+    assert tl[0] == {"date": "2026-10-28", "title": "Later Manual", "text": "text3", "auto": False}
+    assert tl[1] == {"date": "2026-10-27", "title": "Eve ist der Gemeinschaft beigetreten", "text": "", "auto": True}
+    assert tl[2] == {"date": "2026-10-26", "title": "A-Manual", "text": "text2", "auto": False}
+    assert tl[3] == {"date": "2026-10-26", "title": "B-Manual", "text": "text1", "auto": False}
+    assert tl[4] == {"date": "2026-10-26", "title": "Alice ist der Gemeinschaft beigetreten", "text": "", "auto": True}
+    assert tl[5] == {"date": "2026-10-26", "title": "Bob ist der Gemeinschaft beigetreten", "text": "", "auto": True}
+
+
 if __name__ == "__main__":
     test_path_name()
     test_derive()
@@ -615,4 +1062,10 @@ if __name__ == "__main__":
     test_read_nbt_and_last_death()
     test_grave_layer_and_add_layer()
     test_merge_accounts()
+    test_heatmap()
+    test_records()
+    test_badges()
+    test_load_orte()
+    test_orte_layer_and_layers()
+    test_timeline()
     print("OK")

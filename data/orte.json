@@ -1,0 +1,11 @@
+[
+  {
+    "id": "lager",
+    "name": "Lager",
+    "dim": "overworld",
+    "x": 574,
+    "y": 85,
+    "z": 534,
+    "note": "Kisten-Lager"
+  }
+]
