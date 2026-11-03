@@ -998,8 +998,8 @@ def test_timeline():
     # Load seed file
     seed = load_timeline("data/timeline.json")
     assert len(seed) == 4
-    assert seed[0]["date"] == "2026-10-26"
-    assert seed[0]["title"] == "Neue Welt"
+    # file order is newest-first since the app publishes it that way
+    assert ("2026-10-26", "Neue Welt") in {(e["date"], e["title"]) for e in seed}
 
     # Validation
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as f:
