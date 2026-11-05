@@ -1,9 +1,11 @@
 import gzip
 import html
 import json
+import math
 import os
 import re
 import struct
+import zlib
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, reset_tzpath
 
@@ -479,6 +481,170 @@ def read_nbt(data: bytes) -> dict:
         raise ValueError(f"Expected root compound (10), got {root_type}")
     _root_name = read_string()
     return read_payload(10)
+
+
+def region_entities(data: bytes) -> list[dict]:
+    entities: list[dict] = []
+    for i in range(1024):
+        offset = int.from_bytes(data[i * 4 : i * 4 + 3], "big")
+        if offset == 0:
+            continue
+        p = offset * 4096
+        length = struct.unpack(">I", data[p : p + 4])[0]
+        compression = data[p + 4]
+        if compression != 2:
+            continue
+        payload = zlib.decompress(data[p + 5 : p + 4 + length])
+        chunk_entities = read_nbt(payload).get("Entities", [])
+        if isinstance(chunk_entities, list):
+            entities.extend(chunk_entities)
+    return entities
+
+
+def trade_price(r: dict) -> int:
+    buy = r.get("buy", {})
+    base = buy.get("count", 1) if isinstance(buy, dict) else 1
+    demand = r.get("demand", 0)
+    mult = r.get("priceMultiplier", 0.0)
+    special = r.get("specialPrice", 0)
+    return max(1, min(64, base + max(0, math.floor(base * demand * mult)) + special))
+
+
+def villager_data(entities: list[dict], de: dict, updated: str) -> dict:
+    w_hall: list[tuple[float, dict]] = []
+    e_hall: list[tuple[float, dict]] = []
+    others: list[dict] = []
+    idle = 0
+
+    for e in entities:
+        if e.get("id") != "minecraft:villager":
+            continue
+        pos = e.get("Pos")
+        if not isinstance(pos, (list, tuple)) or len(pos) < 3:
+            continue
+        x = math.floor(pos[0])
+        y = math.floor(pos[1])
+        z = math.floor(pos[2])
+
+        vdata = e.get("VillagerData", {})
+        raw_prof = vdata.get("profession", "") if isinstance(vdata, dict) else ""
+        prof = raw_prof.removeprefix("minecraft:")
+        prof_name = de.get(f"entity.minecraft.villager.{prof}", prof)
+        level = vdata.get("level", 1) if isinstance(vdata, dict) else 1
+
+        offers = e.get("Offers")
+        recipes = offers.get("Recipes", []) if isinstance(offers, dict) and isinstance(offers.get("Recipes"), list) else []
+
+        trades = []
+        for r in recipes:
+            if not isinstance(r, dict):
+                continue
+            r_buy = r.get("buy", {})
+            raw_bid = r_buy.get("id", "") if isinstance(r_buy, dict) else ""
+            bid = raw_bid.removeprefix("minecraft:")
+            bcount = r_buy.get("count", 1) if isinstance(r_buy, dict) else 1
+            bname = _de_name(bid, de)
+            buy_dict = {"id": bid, "count": bcount, "name": bname}
+
+            r_buyB = r.get("buyB")
+            if isinstance(r_buyB, dict) and r_buyB.get("id") and r_buyB.get("id") not in ("air", "minecraft:air"):
+                raw_bBid = r_buyB.get("id", "")
+                bBid = raw_bBid.removeprefix("minecraft:")
+                bBcount = r_buyB.get("count", 1)
+                bBname = _de_name(bBid, de)
+                buy2_dict = {"id": bBid, "count": bBcount, "name": bBname}
+            else:
+                buy2_dict = None
+
+            r_sell = r.get("sell", {})
+            raw_sid = r_sell.get("id", "") if isinstance(r_sell, dict) else ""
+            sid = raw_sid.removeprefix("minecraft:")
+            scount = r_sell.get("count", 1) if isinstance(r_sell, dict) else 1
+            sname = _de_name(sid, de)
+            sell_dict = {"id": sid, "count": scount, "name": sname}
+
+            comps = r_sell.get("components", {}) if isinstance(r_sell, dict) and isinstance(r_sell.get("components"), dict) else {}
+            ench_source = comps.get("minecraft:stored_enchantments") or comps.get("stored_enchantments") or comps.get("minecraft:enchantments") or comps.get("enchantments")
+            ench_list = []
+            if isinstance(ench_source, dict):
+                levels = ench_source.get("levels", ench_source)
+                if isinstance(levels, dict):
+                    for k, v in levels.items():
+                        eid = k.removeprefix("minecraft:")
+                        ename = de.get(f"enchantment.minecraft.{eid}", eid)
+                        ench_list.append({"id": eid, "lvl": int(v), "name": ename})
+
+            price = trade_price(r)
+            uses = r.get("uses", 0)
+            max_uses = r.get("maxUses", 0)
+            trades.append({
+                "buy": buy_dict,
+                "buy2": buy2_dict,
+                "sell": sell_dict,
+                "ench": ench_list,
+                "price": price,
+                "uses": uses,
+                "maxUses": max_uses,
+            })
+
+        is_hall = (raw_prof == "minecraft:librarian" or prof == "librarian") and (528 <= x <= 537) and (462 <= z <= 500)
+
+        if is_hall:
+            wing = "W" if x < 533 else "E"
+            brain = e.get("Brain")
+            memories = brain.get("memories") if isinstance(brain, dict) and isinstance(brain.get("memories"), dict) else {}
+            job_site = memories.get("minecraft:job_site") if isinstance(memories, dict) and isinstance(memories.get("minecraft:job_site"), dict) else {}
+            js_val = job_site.get("value") if isinstance(job_site, dict) and isinstance(job_site.get("value"), dict) else {}
+            js_pos = js_val.get("pos") if isinstance(js_val, dict) else None
+            lectern_z = js_pos[2] if isinstance(js_pos, (list, tuple)) and len(js_pos) >= 3 else pos[2]
+
+            rec = {
+                "prof": prof,
+                "profName": prof_name,
+                "level": level,
+                "x": x,
+                "y": y,
+                "z": z,
+                "trades": trades,
+                "wing": wing,
+            }
+            if wing == "W":
+                w_hall.append((lectern_z, rec))
+            else:
+                e_hall.append((lectern_z, rec))
+        elif len(recipes) > 0 and prof not in ("none", "nitwit") and raw_prof not in ("minecraft:none", "minecraft:nitwit"):
+            others.append({
+                "prof": prof,
+                "profName": prof_name,
+                "level": level,
+                "x": x,
+                "y": y,
+                "z": z,
+                "trades": trades,
+            })
+        else:
+            idle += 1
+
+    w_hall.sort(key=lambda t: t[0])
+    for i, (_, rec) in enumerate(w_hall):
+        rec["cell"] = i
+    w_list = [rec for _, rec in w_hall]
+
+    e_hall.sort(key=lambda t: t[0])
+    for i, (_, rec) in enumerate(e_hall):
+        rec["cell"] = i
+    e_list = [rec for _, rec in e_hall]
+
+    hall = w_list + e_list
+
+    others.sort(key=lambda v: (v["profName"], -v["level"], v["x"], v["z"]))
+
+    return {
+        "updated": updated,
+        "hall": hall,
+        "others": others,
+        "idle": idle,
+    }
 
 
 def last_death(nbt: dict | None) -> dict | None:
@@ -1414,6 +1580,29 @@ def main():
                             json.dump(updated_markers, f, ensure_ascii=False, indent=2)
                     except Exception as e:
                         print(f"warning: markers for {world_name}: {e}")
+
+    # 13. Villagers
+    last = load_json("state/villagers.json", {})
+    villagers_state = last.get("data")
+    online_now = status_data.get("online", False)
+    if online_now or last.get("online") or not villagers_state:
+        try:
+            base = "world/dimensions/minecraft/overworld/entities"
+            children = json.loads(api(f"files/info/{base}/"))["data"]["children"]
+            entities = []
+            for child in children:
+                if child["name"].endswith(".mca"):
+                    entities.extend(region_entities(api(f"files/data/{base}/{child['name']}/")))
+            updated_str = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            villagers_state = villager_data(entities, de, updated_str)
+        except Exception as e:
+            print(f"warning: villagers: {e}")
+            online_now = True  # keep the old data, rescan on the next run
+    with open("state/villagers.json", "w", encoding="utf-8") as f:
+        json.dump({"online": online_now, "data": villagers_state}, f, ensure_ascii=False, indent=2)
+    if villagers_state:
+        with open("site/data/villagers.json", "w", encoding="utf-8") as f:
+            json.dump(villagers_state, f, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":

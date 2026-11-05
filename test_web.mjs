@@ -20,6 +20,21 @@ import {
   mapLink,
   recordValue,
 } from "./web/assets/app.js";
+import {
+  ENCHANTS,
+  EXCLUSIVE,
+  GEAR,
+  CATEGORIES,
+  roman,
+  bookLabel,
+  bookValue,
+  xpForLevel,
+  anvilPlan,
+  offerIndex,
+  defaultSelection,
+  gearBooks,
+  summary,
+} from "./web/assets/villager.js";
 
 // 1. relTime
 const t0 = "2026-10-26T12:00:00Z";
@@ -333,5 +348,341 @@ assert.equal(recordValue({ value: 1234, unit: "" }), "1.234");
 assert.equal(recordValue({ value: 50 }), "50");
 assert.equal(recordValue(null), "0");
 assert.equal(recordValue({}), "0");
+
+// 20. Villager module tests
+
+// Labels
+assert.equal(bookLabel("sharpness"), "Schärfe V");
+assert.equal(bookLabel("mending"), "Reparatur");
+
+// Two value-1 books (efficiency, sharpness): anvilPlan total 3, with 2 steps both with left.item === true
+const twoPlan = anvilPlan(["efficiency", "sharpness"]);
+// Sharpness V + Efficiency V: 5, then 5 + penalty 1. Worth 5 levels each, per the game's AnvilMenu.
+assert.equal(twoPlan.total, 11);
+assert.equal(twoPlan.maxStep, 6);
+assert.equal(twoPlan.steps.length, 2);
+assert.equal(bookValue("sharpness"), 5);
+assert.equal(bookValue("mending"), 2);
+assert.equal(bookValue("unbreaking"), 3);
+assert.equal(bookValue("thorns"), 12);
+assert.equal(bookValue("silk_touch"), 4);
+assert.equal(twoPlan.steps[0].left.item, true);
+assert.equal(twoPlan.steps[1].left.item, true);
+
+// CATEGORIES covers all 38 ENCHANTS exactly once
+const catIds = CATEGORIES.flatMap((c) => c.ids);
+assert.equal(catIds.length, 38);
+assert.equal(new Set(catIds).size, 38);
+assert.equal(Object.keys(ENCHANTS).length, 38);
+for (const id of catIds) {
+  assert.ok(ENCHANTS[id], `Enchant ${id} from CATEGORIES missing in ENCHANTS`);
+}
+
+// Helper to generate all selections for a gear
+function allGearSelections(gear) {
+  if (gear.kits) {
+    return gear.kits.map((_, idx) => ({ kit: idx, choices: [], extras: [] }));
+  }
+  let selections = [{ kit: 0, choices: [], extras: [] }];
+  if (gear.choices) {
+    for (const choice of gear.choices) {
+      const next = [];
+      for (const sel of selections) {
+        for (let oIdx = 0; oIdx < choice.options.length; oIdx++) {
+          next.push({
+            kit: 0,
+            choices: [...sel.choices, oIdx],
+            extras: [...sel.extras],
+          });
+        }
+      }
+      selections = next;
+    }
+  }
+  if (gear.extras) {
+    for (const extra of gear.extras) {
+      const next = [];
+      for (const sel of selections) {
+        next.push({
+          kit: 0,
+          choices: [...sel.choices],
+          extras: [...sel.extras],
+        });
+        next.push({
+          kit: 0,
+          choices: [...sel.choices],
+          extras: [...sel.extras, extra],
+        });
+      }
+      selections = next;
+    }
+  }
+  return selections;
+}
+
+// Every gear selection: all ids exist in ENCHANTS, no duplicates, no two ids in one EXCLUSIVE group.
+for (const gear of GEAR) {
+  const allSels = allGearSelections(gear);
+  for (const sel of allSels) {
+    const ids = gearBooks(gear, sel);
+    assert.equal(new Set(ids).size, ids.length, `Duplicates found in ${gear.id}`);
+    for (const id of ids) {
+      assert.ok(ENCHANTS[id], `Unknown enchant ${id} in ${gear.id}`);
+    }
+    for (const group of EXCLUSIVE) {
+      const overlap = ids.filter((id) => group.includes(id));
+      assert.ok(
+        overlap.length <= 1,
+        `Exclusive overlap [${overlap.join(", ")}] in ${gear.id}`
+      );
+    }
+  }
+}
+
+// Replay check: for all selections of all GEAR, replay plan.steps with independent code
+for (const gear of GEAR) {
+  for (const sel of allGearSelections(gear)) {
+    const ids = gearBooks(gear, sel);
+    const plan = anvilPlan(ids);
+    assert.ok(plan !== null, `Plan is null for ${gear.id}`);
+
+    const active = [
+      { item: true, ids: [], work: 0 },
+      ...ids.map((id) => ({ item: false, ids: [id], work: 0 })),
+    ];
+    let sumCost = 0;
+
+    const sameBooks = (a, b) => {
+      if (a.length !== b.length) return false;
+      const sortedA = a.slice().sort();
+      const sortedB = b.slice().sort();
+      return sortedA.every((v, i) => v === sortedB[i]);
+    };
+
+    for (const step of plan.steps) {
+      assert.ok(step.cost < 40, `Step cost >= 40: ${step.cost}`);
+
+      const leftIdx = active.findIndex(
+        (p) => p.item === step.left.item && sameBooks(p.ids, step.left.books)
+      );
+      assert.ok(leftIdx !== -1, "Left piece not found in active pieces");
+      const leftPiece = active[leftIdx];
+      active.splice(leftIdx, 1);
+
+      const rightIdx = active.findIndex(
+        (p) => !p.item && sameBooks(p.ids, step.right.books)
+      );
+      assert.ok(rightIdx !== -1, "Right piece not found in active pieces");
+      const rightPiece = active[rightIdx];
+      active.splice(rightIdx, 1);
+
+      const sacrificeVal = rightPiece.ids.reduce((acc, id) => acc + bookValue(id), 0);
+      const expectedCost =
+        sacrificeVal + ((1 << leftPiece.work) - 1) + ((1 << rightPiece.work) - 1);
+      assert.equal(step.cost, expectedCost, "Step cost mismatch in replay");
+      sumCost += step.cost;
+
+      active.push({
+        item: leftPiece.item,
+        ids: [...leftPiece.ids, ...rightPiece.ids],
+        work: Math.max(leftPiece.work, rightPiece.work) + 1,
+      });
+    }
+
+    assert.equal(sumCost, plan.total, "Sum of step costs does not equal plan.total");
+    if (ids.length > 0) {
+      assert.equal(active.length, 1, "Expected exactly 1 piece at the end");
+      assert.equal(active[0].item, true, "Final piece is not an item");
+      assert.equal(new Set(active[0].ids).size, ids.length, "Not all books used");
+      for (const id of ids) {
+        assert.ok(active[0].ids.includes(id), `Missing book ${id} in final item`);
+      }
+    } else {
+      assert.equal(plan.steps.length, 0);
+      assert.equal(plan.total, 0);
+    }
+  }
+}
+
+// Brute-force solver for testing anvilPlan optimality
+function bruteForceOptimal(ids) {
+  const memo = new Map();
+
+  function solve(pieces) {
+    if (pieces.length === 1) {
+      return 0;
+    }
+
+    const key = pieces
+      .map((p) => `${p.item ? "I" : "B"}:${p.ids.slice().sort().join(",")}:${p.work}`)
+      .sort()
+      .join("|");
+
+    if (memo.has(key)) return memo.get(key);
+
+    let minRemaining = Infinity;
+
+    for (let i = 0; i < pieces.length; i++) {
+      const p1 = pieces[i];
+      for (let j = 0; j < pieces.length; j++) {
+        if (i === j) continue;
+        const p2 = pieces[j];
+        if (p2.item) continue; // Item can only ever be on the left
+
+        const rightBookVal = p2.ids.reduce((acc, id) => acc + bookValue(id), 0);
+        const cost = rightBookVal + ((1 << p1.work) - 1) + ((1 << p2.work) - 1);
+        if (cost >= 40) continue;
+
+        const merged = {
+          item: p1.item,
+          ids: [...p1.ids, ...p2.ids],
+          work: Math.max(p1.work, p2.work) + 1,
+        };
+
+        const nextPieces = [];
+        for (let k = 0; k < pieces.length; k++) {
+          if (k !== i && k !== j) nextPieces.push(pieces[k]);
+        }
+        nextPieces.push(merged);
+
+        const rem = solve(nextPieces);
+        if (rem !== Infinity) {
+          if (cost + rem < minRemaining) {
+            minRemaining = cost + rem;
+          }
+        }
+      }
+    }
+
+    memo.set(key, minRemaining);
+    return minRemaining;
+  }
+
+  const initialPieces = [
+    { item: true, ids: [], work: 0 },
+    ...ids.map((id) => ({ item: false, ids: [id], work: 0 })),
+  ];
+
+  return solve(initialPieces);
+}
+
+// Collect unique gear selections
+const seenIdLists = new Set();
+const uniqueIdLists = [];
+for (const gear of GEAR) {
+  for (const sel of allGearSelections(gear)) {
+    const ids = gearBooks(gear, sel);
+    const key = ids.slice().sort().join(",");
+    if (!seenIdLists.has(key)) {
+      seenIdLists.add(key);
+      uniqueIdLists.push(ids);
+    }
+  }
+}
+
+// Compare anvilPlan total with brute force for all <= 5 books
+for (const ids of uniqueIdLists) {
+  if (ids.length <= 5) {
+    const bf = bruteForceOptimal(ids);
+    const ap = anvilPlan(ids);
+    assert.equal(
+      ap.total,
+      bf,
+      `anvilPlan mismatch for [${ids.join(", ")}]: got ${ap.total}, expected ${bf}`
+    );
+  }
+}
+
+// Also test at least one 6-book list
+const sixBookIds = uniqueIdLists.find((ids) => ids.length === 6);
+assert.ok(sixBookIds, "No 6-book gear selection found");
+const bf6 = bruteForceOptimal(sixBookIds);
+const ap6 = anvilPlan(sixBookIds);
+assert.equal(ap6.total, bf6, `6-book mismatch: got ${ap6.total}, expected ${bf6}`);
+
+// offerIndex: picks the cheaper in-stock offer over a cheaper sold-out one, ignores a lower-level book, and handles null
+assert.equal(offerIndex(null).size, 0);
+
+const testData = {
+  hall: [
+    {
+      wing: "W",
+      cell: 0,
+      x: 530,
+      y: 64,
+      z: 465,
+      trades: [
+        {
+          buy: { id: "emerald", count: 20 },
+          sell: { id: "enchanted_book" },
+          ench: [{ id: "efficiency", lvl: 5 }],
+          price: 20,
+          uses: 12,
+          maxUses: 12, // Sold out!
+        },
+      ],
+    },
+    {
+      wing: "W",
+      cell: 1,
+      x: 530,
+      y: 64,
+      z: 475,
+      trades: [
+        {
+          buy: { id: "emerald", count: 35 },
+          sell: { id: "enchanted_book" },
+          ench: [{ id: "efficiency", lvl: 5 }],
+          price: 35,
+          uses: 0,
+          maxUses: 12, // In stock! Higher price than sold out one
+        },
+      ],
+    },
+    {
+      wing: "E",
+      cell: 0,
+      x: 535,
+      y: 64,
+      z: 470,
+      trades: [
+        {
+          buy: { id: "emerald", count: 10 },
+          sell: { id: "enchanted_book" },
+          ench: [{ id: "sharpness", lvl: 4 }], // Lower level! Max is 5
+          price: 10,
+          uses: 0,
+          maxUses: 12,
+        },
+      ],
+    },
+  ],
+};
+
+const idxTest = offerIndex(testData);
+assert.ok(idxTest.has("efficiency"));
+assert.equal(idxTest.get("efficiency").price, 35);
+assert.equal(idxTest.get("efficiency").soldOut, false);
+assert.equal(idxTest.get("efficiency").where, "Westreihe, Zelle 2");
+assert.equal(idxTest.has("sharpness"), false);
+
+// summary: two picks with the same book count it twice; a book with no offer raises missing and is not in emeralds
+const mendingOfferMap = new Map([
+  ["mending", { price: 14, where: "Westreihe, Zelle 1", soldOut: false }],
+]);
+
+const pick1 = {
+  gear: GEAR.find((g) => g.id === "sword"),
+  sel: defaultSelection(GEAR.find((g) => g.id === "sword")),
+};
+const pick2 = {
+  gear: GEAR.find((g) => g.id === "pickaxe"),
+  sel: defaultSelection(GEAR.find((g) => g.id === "pickaxe")),
+};
+
+const sumTest = summary([pick1, pick2], mendingOfferMap);
+assert.equal(sumTest.emeralds, 28);
+assert.equal(sumTest.blankBooks, 2);
+assert.ok(sumTest.missing > 0);
 
 console.log("OK");

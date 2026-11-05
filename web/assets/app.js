@@ -420,7 +420,7 @@ export function compareRows(a, b, defs) {
 // DOM Code (runs only in browser context)
 // -------------------------------------------------------------
 
-function el(tag, attrs = {}, children = []) {
+export function el(tag, attrs = {}, children = []) {
   const element = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null) continue;
@@ -1939,6 +1939,9 @@ async function init() {
     renderOrte(appEl, root, orte);
   } else if (page === "zeitleiste") {
     renderZeitleiste(appEl, root, timeline);
+  } else if (page === "villager") {
+    const { renderVillager } = await import("./villager.js");
+    renderVillager(appEl, root, await fetchJson("villagers.json"));
   }
 }
 

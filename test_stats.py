@@ -3,6 +3,7 @@ import gzip
 import json
 import os
 import struct
+import zlib
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from stats import (
@@ -41,9 +42,12 @@ from stats import (
     record_activity,
     record_history,
     records,
+    region_entities,
     rename_events,
     timeline,
+    trade_price,
     update_meta,
+    villager_data,
 )
 
 
@@ -1044,6 +1048,229 @@ def test_timeline():
     assert tl[5] == {"date": "2026-10-26", "title": "Bob ist der Gemeinschaft beigetreten", "text": "", "auto": True}
 
 
+def test_villagers():
+    # Tiny NBT encoder for test
+    def enc(tag_type: int, val) -> bytes:
+        if tag_type == 1:
+            return struct.pack(">b", val)
+        elif tag_type == 3:
+            return struct.pack(">i", val)
+        elif tag_type == 5:
+            return struct.pack(">f", val)
+        elif tag_type == 6:
+            return struct.pack(">d", val)
+        elif tag_type == 8:
+            raw = val.encode("utf-8")
+            return struct.pack(">H", len(raw)) + raw
+        elif tag_type == 9:
+            elem_type, items = val
+            res = struct.pack(">bi", elem_type, len(items))
+            for it in items:
+                res += enc(elem_type, it)
+            return res
+        elif tag_type == 10:
+            res = bytearray()
+            for k, (t, v) in val.items():
+                res.append(t)
+                raw_k = k.encode("utf-8")
+                res += struct.pack(">H", len(raw_k)) + raw_k
+                res += enc(t, v)
+            res.append(0)
+            return bytes(res)
+        raise ValueError(f"Unknown tag {tag_type}")
+
+    de = {
+        "entity.minecraft.villager.librarian": "Bibliothekar",
+        "entity.minecraft.villager.toolsmith": "Werkzeugschmied",
+        "entity.minecraft.villager.nitwit": "Dummkopf",
+        "enchantment.minecraft.efficiency": "Effizienz",
+        "item.minecraft.emerald": "Smaragd",
+        "item.minecraft.book": "Buch",
+        "item.minecraft.enchanted_book": "Verzaubertes Buch",
+        "item.minecraft.iron_axe": "Eisenaxt",
+    }
+
+    # Entities
+    # Librarian A in W wing: Pos z = 480.0, lectern z = 465
+    lib_a = {
+        "id": (8, "minecraft:villager"),
+        "Pos": (9, (6, [530.0, 64.0, 480.0])),
+        "VillagerData": (10, {
+            "profession": (8, "minecraft:librarian"),
+            "level": (3, 2),
+        }),
+        "Brain": (10, {
+            "memories": (10, {
+                "minecraft:job_site": (10, {
+                    "value": (10, {
+                        "pos": (9, (3, [530, 64, 465])),
+                    }),
+                }),
+            }),
+        }),
+        "Offers": (10, {
+            "Recipes": (9, (10, [
+                {
+                    "buy": (10, {"id": (8, "minecraft:emerald"), "count": (3, 23)}),
+                    "buyB": (10, {"id": (8, "minecraft:book"), "count": (3, 1)}),
+                    "sell": (10, {
+                        "id": (8, "minecraft:enchanted_book"),
+                        "count": (3, 1),
+                        "components": (10, {
+                            "minecraft:stored_enchantments": (10, {
+                                "levels": (10, {"minecraft:efficiency": (3, 5)}),
+                            }),
+                        }),
+                    }),
+                    "demand": (3, -96),
+                    "priceMultiplier": (5, 0.2),
+                    "uses": (3, 0),
+                    "maxUses": (3, 12),
+                }
+            ])),
+        }),
+        "UUID": (8, "0000-1111"),
+        "Gossips": (9, (10, [])),
+    }
+
+    # Librarian B in W wing: Pos z = 470.0 (less than lib_a), lectern z = 475 (greater than lib_a)
+    lib_b = {
+        "id": (8, "minecraft:villager"),
+        "Pos": (9, (6, [530.0, 64.0, 470.0])),
+        "VillagerData": (10, {
+            "profession": (8, "minecraft:librarian"),
+            "level": (3, 1),
+        }),
+        "Brain": (10, {
+            "memories": (10, {
+                "minecraft:job_site": (10, {
+                    "value": (10, {
+                        "pos": (9, (3, [530, 64, 475])),
+                    }),
+                }),
+            }),
+        }),
+        "Offers": (10, {"Recipes": (9, (10, []))}),
+    }
+
+    # Librarian C in E wing: x = 535.0 (>= 533)
+    lib_c = {
+        "id": (8, "minecraft:villager"),
+        "Pos": (9, (6, [535.0, 64.0, 470.0])),
+        "VillagerData": (10, {
+            "profession": (8, "minecraft:librarian"),
+            "level": (3, 3),
+        }),
+        "Brain": (10, {
+            "memories": (10, {
+                "minecraft:job_site": (10, {
+                    "value": (10, {
+                        "pos": (9, (3, [535, 64, 470])),
+                    }),
+                }),
+            }),
+        }),
+        "Offers": (10, {"Recipes": (9, (10, []))}),
+    }
+
+    # Toolsmith outside the hall box
+    toolsmith = {
+        "id": (8, "minecraft:villager"),
+        "Pos": (9, (6, [600.0, 64.0, 470.0])),
+        "VillagerData": (10, {
+            "profession": (8, "minecraft:toolsmith"),
+            "level": (3, 2),
+        }),
+        "Offers": (10, {
+            "Recipes": (9, (10, [
+                {
+                    "buy": (10, {"id": (8, "minecraft:emerald"), "count": (3, 4)}),
+                    "sell": (10, {"id": (8, "minecraft:iron_axe"), "count": (3, 1)}),
+                    "uses": (3, 1),
+                    "maxUses": (3, 12),
+                }
+            ])),
+        }),
+    }
+
+    # Nitwit
+    nitwit = {
+        "id": (8, "minecraft:villager"),
+        "Pos": (9, (6, [600.0, 64.0, 470.0])),
+        "VillagerData": (10, {
+            "profession": (8, "minecraft:nitwit"),
+            "level": (3, 1),
+        }),
+    }
+
+    root_payload = {
+        "Entities": (9, (10, [lib_a, lib_b, lib_c, toolsmith, nitwit])),
+    }
+    nbt_raw = b"\x0a\x00\x00" + enc(10, root_payload)
+    compressed = zlib.compress(nbt_raw)
+
+    # Build region file in memory
+    header = bytearray(4096)
+    header[0:3] = (2).to_bytes(3, "big")  # sector 2
+    header[3] = 1  # 1 sector
+    timestamps = bytes(4096)
+    chunk_payload = struct.pack(">IB", len(compressed) + 1, 2) + compressed
+    region_data = header + timestamps + chunk_payload
+
+    # 1. region_entities returns the entities
+    entities = region_entities(region_data)
+    assert len(entities) == 5
+
+    # 2. villager_data checks
+    vdata = villager_data(entities, de, "2026-11-05T00:00:00Z")
+
+    # 2 librarians inside the hall box get wing W/E
+    hall = vdata["hall"]
+    assert len(hall) == 3
+    wings = {v["wing"] for v in hall}
+    assert "W" in wings and "E" in wings
+
+    # two W librarians are ordered by lectern z even though their Pos z is reversed
+    w_librarians = [v for v in hall if v["wing"] == "W"]
+    assert len(w_librarians) == 2
+    # lib_a has lectern z 465 (smaller) -> cell 0
+    # lib_b has lectern z 475 (larger) -> cell 1
+    assert w_librarians[0]["cell"] == 0
+    assert w_librarians[0]["z"] == 480  # Pos z of lib_a
+    assert w_librarians[1]["cell"] == 1
+    assert w_librarians[1]["z"] == 470  # Pos z of lib_b
+
+    # a toolsmith outside the box lands in others
+    others = vdata["others"]
+    assert len(others) == 1
+    assert others[0]["prof"] == "toolsmith"
+    assert others[0]["profName"] == "Werkzeugschmied"
+
+    # a nitwit counts in idle
+    assert vdata["idle"] == 1
+
+    # trade_price gives 20 for base 10, demand 5, mult 0.2, and 23 for base 23, demand -96, and clamps to 64
+    assert trade_price({"buy": {"count": 10}, "demand": 5, "priceMultiplier": 0.2}) == 20
+    assert trade_price({"buy": {"count": 23}, "demand": -96, "priceMultiplier": 0.2}) == 23
+    assert trade_price({"buy": {"count": 50}, "specialPrice": 100}) == 64
+    assert trade_price({"buy": {"count": 10}, "demand": -100, "priceMultiplier": 0.2}) == 10
+
+    # ench is [{"id":"efficiency","lvl":5,"name":...}]
+    first_trade = w_librarians[0]["trades"][0]
+    assert first_trade["ench"] == [{"id": "efficiency", "lvl": 5, "name": "Effizienz"}]
+
+    # buy2 is set
+    assert first_trade["buy2"] is not None
+    assert first_trade["buy2"]["id"] == "book"
+    assert first_trade["buy2"]["count"] == 1
+    assert first_trade["buy2"]["name"] == "Buch"
+
+    # the output JSON text contains no Gossips and no UUID
+    out_json = json.dumps(vdata)
+    assert "Gossips" not in out_json
+    assert "UUID" not in out_json
+
+
 if __name__ == "__main__":
     test_path_name()
     test_derive()
@@ -1068,4 +1295,5 @@ if __name__ == "__main__":
     test_load_orte()
     test_orte_layer_and_layers()
     test_timeline()
+    test_villagers()
     print("OK")

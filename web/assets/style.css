@@ -1424,3 +1424,547 @@ a:focus-visible, button:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+/* Villager */
+.vl-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.vl-on {
+  border-color: #55ff55 !important;
+  color: #55ff55 !important;
+}
+
+.vl-big {
+  font-size: 1.4rem;
+  color: #ffffff;
+  margin: 0 0 4px;
+}
+
+.vl-sub {
+  color: #cccccc;
+  text-shadow: none;
+  font-size: 0.9rem;
+  margin: 4px 0 12px;
+}
+
+.vl-header-panel,
+.vl-selector-panel {
+  margin-bottom: 24px;
+}
+
+.vl-idle-panel {
+  margin-top: 16px;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+}
+
+.vl-search {
+  width: 100%;
+  height: 44px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 0 12px;
+  margin: 12px 0;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.vl-search:focus {
+  border-color: #ffffff;
+}
+
+.vl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  color: #cccccc;
+  text-shadow: none;
+}
+
+.vl-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vl-legend-swatch {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+}
+
+.vl-hall {
+  margin-bottom: 24px;
+}
+
+.vl-hall[hidden],
+[hidden] {
+  display: none !important;
+}
+
+.vl-hall .vl-door {
+  text-align: center;
+  color: #aaaaaa;
+  text-shadow: none;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  padding: 8px;
+  margin: 8px 0;
+  font-size: 0.9rem;
+}
+
+.vl-aisle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.vl-col h3 {
+  font-size: 1.1rem;
+  color: #ffffff;
+  margin: 8px 0;
+}
+
+.vl-row {
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-left: 6px solid #aaaaaa;
+  margin: 0 0 4px;
+}
+
+.vl-row summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  list-style: none;
+  box-sizing: border-box;
+}
+
+.vl-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.vl-row summary::marker {
+  display: none;
+}
+
+.vl-row summary:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vl-row summary img {
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+
+.vl-price-box {
+  width: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 1.1rem;
+  color: #ffffff;
+}
+
+.vl-price-box img {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.vl-trade-req {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.vl-dim {
+  opacity: 0.6;
+}
+
+.vl-plus,
+.vl-arrow {
+  color: #aaaaaa;
+  text-shadow: none;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.vl-row-name {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.vl-row-body {
+  padding: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vl-row-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.vl-row-info .slot {
+  display: inline-block;
+  padding: 4px 8px;
+}
+
+.vl-stock-text {
+  color: #cccccc;
+  text-shadow: none;
+  font-size: 0.9rem;
+}
+
+.vl-other-trade {
+  font-size: 0.9rem;
+  color: #dddddd;
+  text-shadow: none;
+}
+
+.vl-prof {
+  margin-bottom: 8px;
+}
+
+.vl-prof summary {
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  padding: 4px 0;
+}
+
+.vl-other-villager {
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vl-other-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #aaaaaa;
+  text-shadow: none;
+  font-size: 0.9rem;
+}
+
+.vl-map-btn {
+  padding: 2px 6px;
+  font-size: 0.8rem;
+}
+
+/* Rechner */
+.vl-gear-group {
+  margin-bottom: 16px;
+}
+
+.vl-group-title {
+  font-size: 0.95rem;
+  color: #cccccc;
+  text-shadow: none;
+  margin-bottom: 8px;
+}
+
+.vl-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vl-tile {
+  min-width: 84px;
+  min-height: 84px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 8px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.vl-tile:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vl-tile[aria-pressed="true"] {
+  border-color: #55ff55;
+  color: #55ff55;
+}
+
+.vl-tile img {
+  image-rendering: pixelated;
+}
+
+.vl-total {
+  margin: 20px 0;
+  padding: 16px;
+}
+
+.vl-total-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.vl-total-item {
+  font-size: 1.6rem;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vl-total-item img {
+  image-rendering: pixelated;
+  vertical-align: middle;
+}
+
+.vl-total-level-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.vl-level-main {
+  white-space: nowrap;
+}
+
+.vl-xp-sub {
+  display: block;
+  font-size: 0.9rem;
+  color: #cccccc;
+  text-shadow: none;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.vl-item-panel {
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.vl-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.vl-item-head h3 {
+  font-size: 1.2rem;
+  color: #ffffff;
+  margin: 0;
+}
+
+.vl-item-head img {
+  image-rendering: pixelated;
+}
+
+.vl-kits-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.vl-choice-title {
+  font-size: 0.9rem;
+  color: #aaaaaa;
+  text-shadow: none;
+  margin: 10px 0 4px;
+}
+
+.vl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.vl-chip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  padding: 6px 12px;
+  cursor: pointer;
+  color: #ffffff;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.vl-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vl-chip:has(input:checked) {
+  border-color: #55ff55;
+}
+
+.vl-chip:focus-within {
+  outline: 2px solid #ffffff;
+}
+
+.vl-visually-hidden {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.vl-book-list {
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vl-book-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.95rem;
+}
+
+.vl-book-row img {
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+
+.vl-book-name {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.vl-book-where {
+  color: #aaaaaa;
+  text-shadow: none;
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+.vl-book-price {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 60px;
+  justify-content: flex-end;
+  color: #ffffff;
+}
+
+.vl-book-price img {
+  width: 20px;
+  height: 20px;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+
+.vl-book-sum {
+  border-top: 2px solid rgba(255, 255, 255, 0.2);
+  border-bottom: none;
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.vl-steps-title {
+  font-size: 1rem;
+  color: #ffffff;
+  margin: 16px 0 8px;
+}
+
+.vl-steps {
+  margin: 0 0 12px 0;
+  padding-left: 2.2em !important;
+  list-style: decimal !important;
+}
+
+.vl-step {
+  padding: 3px 0;
+  font-size: 0.95rem;
+  color: #eeeeee;
+}
+
+.vl-step-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+}
+
+.vl-step-text {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.vl-step-cost {
+  color: #ffffff;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 639px) {
+  .vl-trade-req {
+    display: none;
+  }
+
+  .vl-aisle {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .vl-total-stats {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .vl-book-row {
+    flex-wrap: wrap;
+  }
+
+  .vl-book-where {
+    width: 100%;
+    order: 3;
+    padding-left: 32px;
+    margin-left: 0;
+  }
+}

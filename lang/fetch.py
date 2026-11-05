@@ -35,6 +35,7 @@ def main():
         or k.startswith("block.minecraft.")
         or k.startswith("item.minecraft.")
         or k.startswith("entity.minecraft.")
+        or k.startswith("enchantment.minecraft.")
         or k.startswith("death.")
     }
     de_sorted = dict(sorted(de_filtered.items()))
