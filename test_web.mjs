@@ -661,7 +661,7 @@ const testData = {
 
 const idxTest = offerIndex(testData);
 assert.ok(idxTest.has("efficiency"));
-assert.equal(idxTest.get("efficiency").price, 35);
+assert.equal(idxTest.get("efficiency").price, 23);
 assert.equal(idxTest.get("efficiency").soldOut, false);
 assert.equal(idxTest.get("efficiency").where, "Westreihe, Zelle 2");
 assert.equal(idxTest.has("sharpness"), false);

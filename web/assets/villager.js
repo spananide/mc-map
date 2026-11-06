@@ -317,6 +317,15 @@ export function anvilPlan(ids) {
   };
 }
 
+// Preise der Sammelübersicht (Em + Buch), gelten statt der Weltdaten.
+const PRICES = {
+  sharpness: 26, smite: 23, bane_of_arthropods: 23, sweeping_edge: 11, fire_aspect: 11, looting: 15, knockback: 11,
+  lunge: 16, density: 23, breach: 20, power: 23, punch: 11, flame: 6, infinity: 6, quick_charge: 16, multishot: 7, piercing: 20,
+  impaling: 23, loyalty: 16, riptide: 16, channeling: 7, efficiency: 23, fortune: 14, silk_touch: 6, luck_of_the_sea: 16, lure: 16,
+  protection: 14, fire_protection: 20, blast_protection: 20, projectile_protection: 20, feather_falling: 19, depth_strider: 13,
+  frost_walker: 22, aqua_affinity: 7, thorns: 11, unbreaking: 13, mending: 8,
+};
+
 export function offerIndex(data) {
   const map = new Map();
   if (!data) return map;
@@ -331,7 +340,7 @@ export function offerIndex(data) {
       if (maxLvl == null || ench.lvl !== maxLvl) continue;
 
       const soldOut = Boolean(t.maxUses > 0 && t.uses >= t.maxUses);
-      const price = t.price;
+      const price = PRICES[ench.id] ?? t.price;
       const where = v.wing != null
         ? `${v.wing === "W" ? "Westreihe" : "Ostreihe"}, Zelle ${v.cell + 1}`
         : `${v.x} ${v.y} ${v.z}`;
